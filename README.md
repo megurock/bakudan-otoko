@@ -1,7 +1,10 @@
-# 💣 Bomberman Online
+# 💣 BakudanOtoko（爆弾男）
 
-Cloudflare Workers + Durable Objects で動くリアルタイム対戦ボンバーマン。
+Cloudflare Workers + Durable Objects で動くリアルタイム対戦ゲーム。
 最大 **6人** 同時対戦・Basic 認証付き・無料枠で運用可能。
+
+> Bomberman® にインスパイアされた非公式のファンメイドクローンです。
+> コード・グラフィックはすべてオリジナル。Bomberman は KONAMI の登録商標であり、本プロジェクトとは無関係です。
 
 ## 遊び方
 

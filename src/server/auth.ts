@@ -3,7 +3,7 @@ export interface AuthEnv {
   BASIC_PASS?: string;
 }
 
-const REALM = 'Basic realm="bomberman", charset="UTF-8"';
+const REALM = 'Basic realm="bakudan-otoko", charset="UTF-8"';
 
 function unauthorized(withChallenge: boolean): Response {
   return new Response("Unauthorized", {

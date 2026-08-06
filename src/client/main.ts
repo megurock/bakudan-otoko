@@ -21,7 +21,7 @@ if (!roomParam) {
 
 function startGame(app: HTMLElement, roomId: string): void {
   app.innerHTML = `
-  <h1 style="margin:8px 0">💣 Bomberman</h1>
+  <h1 style="margin:8px 0">💣 BakudanOtoko</h1>
   <div id="hud" style="margin-bottom:8px">
     <span id="status">connecting...</span>
     <button id="readyBtn" style="display:none;margin-left:12px;padding:4px 16px">Ready</button>

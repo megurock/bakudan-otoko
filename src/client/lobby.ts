@@ -17,7 +17,7 @@ const API_ROOMS = `${location.origin}/api/rooms`;
 export function renderLobby(app: HTMLElement): void {
   const savedName = localStorage.getItem("bm-name") ?? "";
   app.innerHTML = `
-    <h1 style="margin:8px 0">💣 Bomberman</h1>
+    <h1 style="margin:8px 0">💣 BakudanOtoko</h1>
     <div style="margin:16px 0">
       <label>プレイヤー名:
         <input id="nameInput" maxlength="12" value="${escapeHtml(savedName)}"
