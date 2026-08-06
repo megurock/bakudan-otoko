@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "bomberman",
+  "main": "src/server/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "dist/client",
+    "binding": "ASSETS",
+    // 静的アセットにも Basic 認証を適用するため、全リクエストを Worker 経由にする
+    "run_worker_first": true
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROOM_DO", "class_name": "RoomDO" },
+      { "name": "LOBBY_DO", "class_name": "LobbyDO" }
+    ]
+  },
+  "migrations": [
+    // 無料プランは SQLite バックエンドの DO のみ利用可能
+    { "tag": "v1", "new_sqlite_classes": ["RoomDO", "LobbyDO"] }
+  ],
+  "observability": { "enabled": true }
+}

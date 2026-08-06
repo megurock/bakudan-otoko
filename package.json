@@ -1,0 +1,28 @@
+{
+  "name": "bomberman",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "predev": "vite build",
+    "dev": "concurrently -k \"vite build --watch\" \"wrangler dev\"",
+    "build": "vite build",
+    "deploy": "npm run build && wrangler deploy",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit",
+    "cf-typegen": "wrangler types"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260801.1",
+    "concurrently": "^9.1.2",
+    "typescript": "^5.7.3",
+    "vite": "^7.0.0",
+    "vitest": "^3.2.0",
+    "wrangler": "^4.27.0"
+  },
+  "allowScripts": {
+    "workerd@1.20260801.1": true,
+    "esbuild@0.28.1": true,
+    "sharp@0.35.2": true
+  }
+}
