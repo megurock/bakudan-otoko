@@ -65,6 +65,9 @@ export type S2C =
     }
   | { t: "joinRejected"; reason: "full" | "in_progress" | "bad_token" }
   | { t: "roster"; roster: RosterEntry[]; phase: Phase }
+  // 全員 Ready 後の開始猶予。endsAt までに誰かが Ready を外すと startCancelled が来る
+  | { t: "startPending"; endsAt: number; players: number }
+  | { t: "startCancelled" }
   | {
       t: "start";
       seed: number;

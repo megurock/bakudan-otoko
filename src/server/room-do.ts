@@ -2,6 +2,7 @@ import {
   COUNTDOWN_TICKS,
   FINISHED_RESET_MS,
   MAX_PLAYERS,
+  START_GRACE_MS,
   TICK_MS,
 } from "../shared/constants";
 import {
@@ -60,6 +61,8 @@ export class RoomDO {
 
   private timer: ReturnType<typeof setTimeout> | null = null;
   private resetTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 全員 Ready 後の開始猶予タイマー */
+  private startTimer: ReturnType<typeof setTimeout> | null = null;
   private loopStart = 0;
   private loopN = 0;
   private lastTickAt = 0;
@@ -215,6 +218,8 @@ export class RoomDO {
 
     const newToken = crypto.randomUUID();
     this.roster.set(slot, { slot, name: safeName, token: newToken, ready: false });
+    // 新しく入った人は未 Ready なので開始条件が崩れる。猶予中なら取り消す
+    this.cancelStartGrace();
     await this.persistRoster();
     ws.serializeAttachment({ slot, token: newToken });
     this.sendWelcome(ws, slot, newToken);
@@ -250,11 +255,43 @@ export class RoomDO {
 
   // ===== 試合ライフサイクル =====
 
+  /**
+   * 開始条件（2人以上・全員 Ready）を満たしたら猶予タイマーを張る。
+   * 条件が崩れたら（Ready 解除・退室）タイマーを取り消す。
+   * 即開始しないのは、まだ入室していない相手を待っている最中に
+   * 先に揃った人たちだけで始まってしまう事故を防ぐため。
+   */
   private async maybeStart(): Promise<void> {
     if (this.game) return;
     const entries = [...this.roster.values()];
-    if (entries.length < 2) return;
-    if (!entries.every((e) => e.ready)) return;
+    const ready = entries.length >= 2 && entries.every((e) => e.ready);
+
+    if (!ready) {
+      this.cancelStartGrace();
+      return;
+    }
+    if (this.startTimer !== null) return; // 既に猶予中
+
+    const endsAt = Date.now() + START_GRACE_MS;
+    this.startTimer = setTimeout(() => {
+      this.startTimer = null;
+      void this.beginMatch();
+    }, START_GRACE_MS);
+    this.broadcast({ t: "startPending", endsAt, players: entries.length });
+  }
+
+  private cancelStartGrace(): void {
+    if (this.startTimer === null) return;
+    clearTimeout(this.startTimer);
+    this.startTimer = null;
+    this.broadcast({ t: "startCancelled" });
+  }
+
+  private async beginMatch(): Promise<void> {
+    if (this.game) return;
+    const entries = [...this.roster.values()];
+    // 猶予中に状況が変わっていないか最終確認
+    if (entries.length < 2 || !entries.every((e) => e.ready)) return;
 
     const seed = (Math.random() * 0x100000000) >>> 0;
     const slots = entries.map((e) => e.slot);
@@ -347,6 +384,10 @@ export class RoomDO {
       clearTimeout(this.resetTimer);
       this.resetTimer = null;
     }
+    if (this.startTimer !== null) {
+      clearTimeout(this.startTimer);
+      this.startTimer = null;
+    }
     this.game = null;
     this.pendingKeys.fill(0);
     this.lastSeq.fill(0);
@@ -371,6 +412,10 @@ export class RoomDO {
     if (this.resetTimer !== null) {
       clearTimeout(this.resetTimer);
       this.resetTimer = null;
+    }
+    if (this.startTimer !== null) {
+      clearTimeout(this.startTimer);
+      this.startTimer = null;
     }
     this.game = null;
     this.roster.clear();

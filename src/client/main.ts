@@ -1,6 +1,13 @@
 // エントリポイント: ?room= があればゲーム画面、なければロビー
 
-import { COUNTDOWN_TICKS, HALF_TILE, MAP_W, SPAWNS, SUB } from "../shared/constants";
+import {
+  COUNTDOWN_TICKS,
+  HALF_TILE,
+  MAP_W,
+  SPAWNS,
+  START_GRACE_MS,
+  SUB,
+} from "../shared/constants";
 import { decodeGrid, type RosterEntry, type S2C } from "../shared/protocol";
 import { InputTracker } from "./game/input";
 import { SnapBuffer } from "./game/interpolation";
@@ -28,6 +35,7 @@ function startGame(app: HTMLElement, roomId: string): void {
     <span id="stats" style="margin-left:16px"></span>
   </div>
   <div id="rosterView" style="margin-bottom:8px;min-height:1.2em"></div>
+  <div id="startHint" style="margin-bottom:8px;min-height:1.4em;color:#888;font-size:13px"></div>
   <canvas id="game" style="border:2px solid #444;max-width:100%;image-rendering:pixelated"></canvas>
   <p style="color:#888">移動: 矢印キー / WASD ・ 爆弾: Space / Z ・ <a href="./" style="color:#6af">ロビーへ戻る</a>
     <span id="debug" style="float:right;color:#555;font-size:11px"></span></p>
@@ -58,6 +66,62 @@ const renderer = new Renderer(canvas);
 const snapBuffer = new SnapBuffer();
 const debugEl = document.getElementById("debug")!;
 const statsEl = document.getElementById("stats")!;
+const startHintEl = document.getElementById("startHint")!;
+
+// 開始猶予。サーバーとクライアントの時計はズレうるので、絶対時刻ではなく
+// 「受信時点から START_GRACE_MS」をローカル時計で数える
+let startPendingUntil: number | null = null;
+let startPendingPlayers = 0;
+let hintTimer: ReturnType<typeof setInterval> | null = null;
+
+function clearStartPending(): void {
+  startPendingUntil = null;
+  startPendingPlayers = 0;
+  if (hintTimer !== null) {
+    clearInterval(hintTimer);
+    hintTimer = null;
+  }
+}
+
+/** Ready ボタンの文言とヒントを、今の状況に合わせて描き直す */
+function updateStartUi(): void {
+  const waiting = readyBtn.style.display !== "none";
+  if (!waiting) {
+    startHintEl.textContent = "";
+    return;
+  }
+
+  const others = roster.filter((r) => r.slot !== mySlot);
+  const notReady = roster.filter((r) => !r.ready);
+
+  if (startPendingUntil !== null) {
+    const left = Math.max(0, Math.ceil((startPendingUntil - performance.now()) / 1000));
+    startHintEl.innerHTML =
+      `<span style="color:#e67e22">まもなく開始（${left}秒）…</span> ` +
+      `${startPendingPlayers}人で対戦します。` +
+      `<span style="color:#aaa">待つ人がいるなら Cancel で中止できます。</span>`;
+    readyBtn.textContent = "Cancel";
+    return;
+  }
+
+  // 2人未満では「n人で開始」は誤解を招く（その人数では始まらない）ので出さない
+  readyBtn.textContent = ready
+    ? "Cancel"
+    : roster.length >= 2
+      ? `Ready（${roster.length}人で開始）`
+      : "Ready";
+
+  if (roster.length < 2) {
+    startHintEl.textContent = "対戦にはあと1人以上必要です。誰かの参加を待っています…";
+  } else if (notReady.length > 0) {
+    const names = notReady.map((r) => r.name).join(", ");
+    startHintEl.textContent =
+      `全員が Ready を押すと開始します（未準備: ${names}）。` +
+      `まだ来ていない人がいるなら、揃うまで待ってください。`;
+  } else {
+    startHintEl.textContent = `${others.length + 1}人が準備完了です。`;
+  }
+}
 
 // ===== ネットワーク =====
 
@@ -85,6 +149,7 @@ function handleMessage(msg: S2C): void {
       roster = msg.roster;
       if (msg.phase === "waiting") showWaitingUi();
       renderRoster();
+      updateStartUi();
       break;
     case "joinRejected":
       statusEl.textContent = `参加できません: ${msg.reason}`;
@@ -95,6 +160,17 @@ function handleMessage(msg: S2C): void {
       if (msg.phase === "waiting" && readyBtn.style.display === "none" && mySlot >= 0) {
         resetToWaitingUi();
       }
+      updateStartUi();
+      break;
+    case "startPending":
+      startPendingUntil = performance.now() + START_GRACE_MS;
+      startPendingPlayers = msg.players;
+      if (hintTimer === null) hintTimer = setInterval(updateStartUi, 250);
+      updateStartUi();
+      break;
+    case "startCancelled":
+      clearStartPending();
+      updateStartUi();
       break;
     case "start":
       grid = decodeGrid(msg.grid);
@@ -104,6 +180,8 @@ function handleMessage(msg: S2C): void {
       winnerSlot = null;
       countdownEndTick = msg.tick + msg.countdownTicks;
       readyBtn.style.display = "none";
+      clearStartPending();
+      startHintEl.textContent = "";
       statusEl.textContent = `room: ${roomId}`;
       if (mySlot >= 0 && mySlot < SPAWNS.length) {
         const spawn = SPAWNS[mySlot]!;
@@ -142,7 +220,8 @@ function handleMessage(msg: S2C): void {
 function showWaitingUi(): void {
   readyBtn.style.display = "";
   ready = false;
-  readyBtn.textContent = "Ready";
+  clearStartPending();
+  updateStartUi();
 }
 
 function resetToWaitingUi(): void {
@@ -157,8 +236,10 @@ function resetToWaitingUi(): void {
 
 readyBtn.addEventListener("click", () => {
   ready = !ready;
-  readyBtn.textContent = ready ? "Cancel" : "Ready";
   net.send({ t: "ready", ready });
+  // 取り消しの体感を早くするため、サーバーの startCancelled を待たずに畳む
+  if (!ready) clearStartPending();
+  updateStartUi();
 });
 
 function renderRoster(): void {

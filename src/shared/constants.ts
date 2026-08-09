@@ -34,6 +34,10 @@ export const SOFT_FILL_PCT = 75;
 export const DROP_PCT = 30;
 
 // フェーズ時間
+// 全員 Ready から実際の開始までの猶予（ms）。
+// この間に Ready を外せば中止できる。入室待ちの相手がいるときの押し間違いを救う
+export const START_GRACE_MS = 5000;
+
 export const COUNTDOWN_TICKS = 3 * TICK_RATE;
 export const MATCH_MAX_TICKS = 180 * TICK_RATE; // 3分で引き分け
 export const FINISHED_RESET_MS = 8000;
