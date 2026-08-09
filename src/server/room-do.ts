@@ -172,15 +172,21 @@ export class RoomDO {
 
     const safeName = String(name ?? "").slice(0, 12) || "player";
 
-    // 再接続（token 一致）
+    // 再接続（token 一致）。旧ソケットがまだ生きていてもスロットを引き継ぐ。
+    // ページ遷移での再参加では、古いソケットの close がサーバーに届く前に
+    // 新しい接続の join が処理されることがある。ここで接続状態を条件にすると
+    // 同じプレイヤーに新スロットを配ってしまい、ロスターが増殖する。
     if (token) {
       const entry = [...this.roster.values()].find((r) => r.token === token);
-      if (entry && !this.isSlotConnected(entry.slot)) {
+      if (entry) {
+        this.closeSocketsForSlot(entry.slot, ws);
+        entry.name = safeName;
         ws.serializeAttachment({ slot: entry.slot, token: entry.token });
         if (this.game) {
           const p = this.game.players.find((q) => q.slot === entry.slot);
           if (p) p.connected = true;
         }
+        await this.persistRoster();
         this.sendWelcome(ws, entry.slot, entry.token);
         if (this.game) this.sendStartInfo(ws, this.game);
         this.broadcastRoster();
@@ -394,6 +400,25 @@ export class RoomDO {
 
   private liveSockets(): WebSocket[] {
     return this.ctx.getWebSockets().filter((ws) => ws.readyState === WebSocket.READY_STATE_OPEN);
+  }
+
+  /**
+   * 同じ slot を掴んでいる古いソケットを閉じる（except は残す）。
+   * attachment を外してから閉じるので、遅れて届く webSocketClose は
+   * このスロットを roster から削除しない（新しい接続が持ち主になっている）。
+   */
+  private closeSocketsForSlot(slot: number, except: WebSocket): void {
+    for (const old of this.ctx.getWebSockets()) {
+      if (old === except) continue;
+      const att = old.deserializeAttachment() as Attachment | null;
+      if (att?.slot !== slot) continue;
+      old.serializeAttachment(null);
+      try {
+        old.close(1000, "replaced_by_new_connection");
+      } catch {
+        // 既に閉じている場合は無視
+      }
+    }
   }
 
   private isSlotConnected(slot: number): boolean {
