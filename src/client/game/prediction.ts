@@ -6,6 +6,10 @@ import { Dir, type Bomb, type Player } from "../../shared/types";
 const EPS = 8; // 許容予測誤差 (units)
 const SNAP_ERROR = HALF_TILE; // これ以上のズレは即スナップ
 const HISTORY_SIZE = 64;
+// 訂正オフセットを表示上に溶かす半減期。短すぎると「引き戻される」感触になる
+const RENDER_ERR_HALFLIFE_MS = 120;
+// RTT のゆらぎ・tick 境界の丸めを吸収する先行マージン。大きいほど入力遅延が増えるので最小限に
+const LEAD_MARGIN_TICKS = 2;
 
 interface HistoryEntry {
   tick: number;
@@ -31,6 +35,9 @@ export class Prediction {
   private renderErrX = 0;
   private renderErrY = 0;
   private started = false;
+  /** tick 間の描画補間用: 直前 tick 終了時点の位置 */
+  private prevX = 0;
+  private prevY = 0;
 
   // デバッグ統計
   corrections = 0;
@@ -52,15 +59,30 @@ export class Prediction {
       keys: 0,
       prevKeys: 0,
     };
+    this.prevX = spawnX;
+    this.prevY = spawnY;
+  }
+
+  /** 入力に添える「この入力が有効になるべき tick」 */
+  get inputTick(): number {
+    return this.predictedTick;
   }
 
   setGrid(grid: Uint8Array): void {
     this.world.grid = grid;
   }
 
-  /** サーバー tick に予測時計を同期して予測を開始する */
+  /**
+   * サーバー tick に予測時計を同期して予測を開始する。
+   *
+   * 受け取った serverTick は「片道分（RTT/2）古い」情報で、こちらが今から送る入力が
+   * 届くまでにさらに片道分かかる。入力がサーバーに「未来の tick」として届くためには
+   * ラウンドトリップ全体を先行させる必要がある（+ 安全マージン）。
+   * 先行が足りないと入力が過去 tick 扱いで次 tick に押し出され、
+   * 予測とサーバーが 1tick ずれて押下/離鍵のたびに reconciliation が起きる。
+   */
   syncClock(serverTick: number, rttMs: number): void {
-    const lead = Math.ceil(rttMs / 2 / TICK_MS) + 1;
+    const lead = Math.ceil(rttMs / TICK_MS) + LEAD_MARGIN_TICKS;
     const target = serverTick + lead;
     if (!this.started || Math.abs(target - this.predictedTick) > 10) {
       this.predictedTick = target;
@@ -72,21 +94,25 @@ export class Prediction {
   frame(now: number, keys: number): void {
     if (!this.started || !this.me.alive) return;
     if (this.lastFrame === 0) this.lastFrame = now;
-    this.accumulator += now - this.lastFrame;
+    const dt = now - this.lastFrame;
+    this.accumulator += dt;
     this.lastFrame = now;
     // 遅延スパイク時の暴走防止
     if (this.accumulator > 250) this.accumulator = 250;
 
     while (this.accumulator >= TICK_MS) {
       this.accumulator -= TICK_MS;
+      this.prevX = this.me.x;
+      this.prevY = this.me.y;
       movePlayer(this.world, this.me, keys);
       this.history.push({ tick: this.predictedTick, keys, x: this.me.x, y: this.me.y });
       if (this.history.length > HISTORY_SIZE) this.history.shift();
       this.predictedTick++;
     }
-    // 表示誤差の指数減衰
-    this.renderErrX *= 0.85;
-    this.renderErrY *= 0.85;
+    // 表示誤差の指数減衰（フレームレート非依存: 半減期 RENDER_ERR_HALFLIFE_MS）
+    const decay = Math.pow(0.5, dt / RENDER_ERR_HALFLIFE_MS);
+    this.renderErrX *= decay;
+    this.renderErrY *= decay;
     if (Math.abs(this.renderErrX) < 1) this.renderErrX = 0;
     if (Math.abs(this.renderErrY) < 1) this.renderErrY = 0;
   }
@@ -122,16 +148,14 @@ export class Prediction {
     if (!this.me.alive) return;
 
     if (!this.started) {
-      this.me.x = sx;
-      this.me.y = sy;
+      this.setPosition(sx, sy);
       return;
     }
 
     const h = this.history.find((e) => e.tick === snap.k);
     if (!h) {
       // 履歴外（開始直後 or 大幅遅延）: サーバー位置に合わせる
-      this.me.x = sx;
-      this.me.y = sy;
+      this.setPosition(sx, sy);
       return;
     }
 
@@ -141,8 +165,9 @@ export class Prediction {
 
     // 訂正: サーバー位置から履歴入力を再適用
     this.corrections++;
-    const prevX = this.me.x + this.renderErrX;
-    const prevY = this.me.y + this.renderErrY;
+    // 起点は「いま画面に見えている位置」= 補間 + オフセット込み
+    const prevX = this.renderX;
+    const prevY = this.renderY;
     this.me.x = sx;
     this.me.y = sy;
     for (const e of this.history) {
@@ -151,6 +176,9 @@ export class Prediction {
       e.x = this.me.x;
       e.y = this.me.y;
     }
+    // 再適用後は tick 境界の位置なので補間起点を畳む
+    this.prevX = this.me.x;
+    this.prevY = this.me.y;
     // 表示の連続性: 直前の表示位置との差をオフセットとして減衰させる
     const dx = prevX - this.me.x;
     const dy = prevY - this.me.y;
@@ -163,6 +191,16 @@ export class Prediction {
     }
   }
 
+  /** 予測位置を強制的に置き、補間・オフセットを畳む */
+  private setPosition(x: number, y: number): void {
+    this.me.x = x;
+    this.me.y = y;
+    this.prevX = x;
+    this.prevY = y;
+    this.renderErrX = 0;
+    this.renderErrY = 0;
+  }
+
   matchEnded(): void {
     this.started = false;
     this.history = [];
@@ -172,12 +210,19 @@ export class Prediction {
     return this.me.alive;
   }
 
-  /** 描画用の位置（予測 + 減衰オフセット） */
+  /**
+   * 描画用の位置（tick 間補間 + 減衰オフセット）。
+   * 予測は 20Hz の固定ステップなので、そのまま描くと 60fps では 3 フレームに 1 回だけ
+   * 飛ぶカクついた動きになる。accumulator の進み具合で前 tick と現 tick を補間する。
+   */
+  private get alpha(): number {
+    return Math.min(1, this.accumulator / TICK_MS);
+  }
   get renderX(): number {
-    return this.me.x + this.renderErrX;
+    return this.prevX + (this.me.x - this.prevX) * this.alpha + this.renderErrX;
   }
   get renderY(): number {
-    return this.me.y + this.renderErrY;
+    return this.prevY + (this.me.y - this.prevY) * this.alpha + this.renderErrY;
   }
   get dir(): number {
     return this.me.dir;

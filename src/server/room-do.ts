@@ -12,6 +12,11 @@ import {
   type RosterEntry,
   type S2C,
 } from "../shared/protocol";
+import {
+  consumeInput,
+  enqueueInput,
+  type QueuedInput,
+} from "../shared/input-queue";
 import { createInitialState, stepGame } from "../shared/step";
 import type { GameState } from "../shared/types";
 import type { Env } from "./env";
@@ -46,6 +51,12 @@ export class RoomDO {
   private game: GameState | null = null;
   private pendingKeys: number[] = new Array(MAX_PLAYERS).fill(0);
   private lastSeq: number[] = new Array(MAX_PLAYERS).fill(0);
+  /**
+   * slot ごとの入力キュー（tick 昇順）。クライアントは「この入力が効くべき tick」を
+   * 添えて送るので、その tick に達するまで適用を保留する。これによりクライアント予測と
+   * サーバー適用タイミングが一致し、押下/離鍵のたびの reconciliation が消える。
+   */
+  private inputQueue: QueuedInput[][] = Array.from({ length: MAX_PLAYERS }, () => []);
 
   private timer: ReturnType<typeof setTimeout> | null = null;
   private resetTimer: ReturnType<typeof setTimeout> | null = null;
@@ -144,8 +155,9 @@ export class RoomDO {
       case "input": {
         if (typeof msg.keys !== "number" || typeof msg.seq !== "number") return;
         if (msg.seq <= (this.lastSeq[att.slot] ?? 0)) return; // 後退 seq は無視
-        this.pendingKeys[att.slot] = msg.keys & 31; // 5bit にマスク
         this.lastSeq[att.slot] = msg.seq;
+        const q = this.inputQueue[att.slot];
+        if (q) enqueueInput(q, (this.game?.tick ?? 0) + 1, msg.tick, msg.keys & 31);
         return;
       }
       case "ping": {
@@ -243,6 +255,7 @@ export class RoomDO {
     this.game = createInitialState(seed, slots);
     this.pendingKeys.fill(0);
     this.lastSeq.fill(0);
+    this.clearInputQueues();
 
     await this.ctx.storage.put("matchActive", true);
     await this.ctx.storage.setAlarm(Date.now() + WATCHDOG_MS);
@@ -293,9 +306,20 @@ export class RoomDO {
     }
   }
 
+  private clearInputQueues(): void {
+    for (const q of this.inputQueue) q.length = 0;
+  }
+
   private collectInputs(game: GameState): number[] {
+    // これから stepGame が生成するのは tick game.tick + 1 の状態。
+    // クライアントが「tick k で効く」と予測した入力はその step で適用する。
+    const applyingTick = game.tick + 1;
     const inputs: number[] = new Array(MAX_PLAYERS).fill(0);
     for (const p of game.players) {
+      const q = this.inputQueue[p.slot];
+      if (q) {
+        this.pendingKeys[p.slot] = consumeInput(q, applyingTick, this.pendingKeys[p.slot] ?? 0);
+      }
       inputs[p.slot] = p.connected ? (this.pendingKeys[p.slot] ?? 0) : 0;
     }
     return inputs;
@@ -320,6 +344,7 @@ export class RoomDO {
     this.game = null;
     this.pendingKeys.fill(0);
     this.lastSeq.fill(0);
+    this.clearInputQueues();
 
     // 切断済みプレイヤーのスロットを解放し、ready をリセット
     for (const [slot, entry] of [...this.roster.entries()]) {

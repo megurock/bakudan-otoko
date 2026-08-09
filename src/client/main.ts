@@ -176,7 +176,14 @@ function renderRoster(): void {
 
 const tracker = new InputTracker((mask) => {
   seq++;
-  net.send({ t: "input", seq, tick: snapBuffer.latest?.k ?? 0, keys: mask });
+  // 予測 tick を添えて送る。サーバーはこの tick まで適用を保留するので、
+  // クライアント予測とサーバー適用タイミングが一致し reconciliation が発生しない。
+  net.send({
+    t: "input",
+    seq,
+    tick: prediction?.inputTick ?? snapBuffer.latest?.k ?? 0,
+    keys: mask,
+  });
 });
 
 // ===== 描画ループ =====

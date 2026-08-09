@@ -15,6 +15,13 @@ import {
   SPEED_MAX,
   SUB,
 } from "./constants";
+import {
+  consumeInput,
+  enqueueInput,
+  INPUT_MAX_LEAD_TICKS,
+  INPUT_QUEUE_MAX,
+  type QueuedInput,
+} from "./input-queue";
 import { createMap, idx, tileAt } from "./map";
 import { collides, movePlayer, tilePassable } from "./movement";
 import { buildSnap, decodeC2S, decodeGrid, encode, encodeGrid } from "./protocol";
@@ -486,5 +493,85 @@ describe("collision utils", () => {
       expect(p.x).toBe(sx * SUB + HALF_TILE);
       expect(p.y).toBe(sy * SUB + HALF_TILE);
     }
+  });
+});
+
+// ===== 8. 入力キュー（tick 指定適用） =====
+
+describe("input queue", () => {
+  it("指定 tick に達するまで入力を保留する", () => {
+    const q: QueuedInput[] = [];
+    enqueueInput(q, 11, 15, Key.Right); // tick 15 で効く入力
+    // tick 14 まではまだ適用されない（fallback を返す）
+    expect(consumeInput(q, 12, 0)).toBe(0);
+    expect(consumeInput(q, 14, 0)).toBe(0);
+    expect(q).toHaveLength(1);
+    // tick 15 で適用され、キューから消える
+    expect(consumeInput(q, 15, 0)).toBe(Key.Right);
+    expect(q).toHaveLength(0);
+    // 以降は最後のキー状態を維持（fallback がそのまま返る）
+    expect(consumeInput(q, 16, Key.Right)).toBe(Key.Right);
+  });
+
+  it("過去 tick 指定（遅延到着）は取りこぼさず次 tick で適用する", () => {
+    const q: QueuedInput[] = [];
+    enqueueInput(q, 20, 12, Key.Left); // 8 tick 前の入力が今頃届いた
+    expect(q[0]!.tick).toBe(20);
+    expect(consumeInput(q, 20, 0)).toBe(Key.Left);
+  });
+
+  it("到着順が前後しても tick 昇順を保つ", () => {
+    const q: QueuedInput[] = [];
+    enqueueInput(q, 10, 14, Key.Bomb);
+    enqueueInput(q, 10, 12, Key.Up);
+    enqueueInput(q, 10, 13, Key.Down);
+    expect(q.map((e) => e.tick)).toEqual([12, 13, 14]);
+    // tick 13 まで消化すると最後（tick 13）のキーが返り、tick 14 は残る
+    expect(consumeInput(q, 13, 0)).toBe(Key.Down);
+    expect(q.map((e) => e.tick)).toEqual([14]);
+  });
+
+  it("同 tick への再送は後着で上書きする", () => {
+    const q: QueuedInput[] = [];
+    enqueueInput(q, 10, 15, Key.Left);
+    enqueueInput(q, 10, 15, Key.Right);
+    expect(q).toHaveLength(1);
+    expect(consumeInput(q, 15, 0)).toBe(Key.Right);
+  });
+
+  it("先読みし過ぎた入力は握り潰す", () => {
+    const q: QueuedInput[] = [];
+    enqueueInput(q, 10, 10 + INPUT_MAX_LEAD_TICKS, Key.Up);
+    expect(q).toHaveLength(1);
+    enqueueInput(q, 10, 10 + INPUT_MAX_LEAD_TICKS + 1, Key.Down);
+    expect(q).toHaveLength(1); // 追加されない
+    enqueueInput(q, 10, Number.POSITIVE_INFINITY, Key.Bomb);
+    expect(q.some((e) => e.keys === Key.Bomb && e.tick === 10)).toBe(true); // 非有限値は次 tick 扱い
+  });
+
+  it("キュー長は上限で頭から切り捨てる", () => {
+    const q: QueuedInput[] = [];
+    for (let i = 0; i < INPUT_QUEUE_MAX + 10; i++) {
+      // 上限超えを作るため lead 制限を都度ずらして積む
+      enqueueInput(q, i, i + 1, i % 2 === 0 ? Key.Left : Key.Right);
+    }
+    expect(q.length).toBeLessThanOrEqual(INPUT_QUEUE_MAX);
+    // 昇順は維持されている
+    for (let i = 1; i < q.length; i++) {
+      expect(q[i]!.tick).toBeGreaterThan(q[i - 1]!.tick);
+    }
+  });
+
+  it("押しっぱなしは1回の送信で以降の全 tick に効き続ける", () => {
+    const q: QueuedInput[] = [];
+    enqueueInput(q, 5, 5, Key.Right);
+    let keys = 0;
+    const applied: number[] = [];
+    for (let t = 5; t < 15; t++) {
+      keys = consumeInput(q, t, keys);
+      applied.push(keys);
+    }
+    // 10 tick すべてで Right が適用され続ける（＝速度が安定する）
+    expect(applied).toEqual(new Array(10).fill(Key.Right));
   });
 });
