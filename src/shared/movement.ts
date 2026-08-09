@@ -1,4 +1,10 @@
-import { CORNER_SLIDE_MAX, HALF_TILE, PLAYER_HALF, SUB } from "./constants";
+import {
+  CORNER_SLIDE_MAX,
+  HALF_TILE,
+  PLAYER_HALF,
+  SKULL_SPEED,
+  SUB,
+} from "./constants";
 import { tileAt } from "./map";
 import { Dir, Key, Tile, type Bomb, type Player } from "./types";
 
@@ -125,6 +131,8 @@ export function movePlayer(state: World, p: Player, keys: number): void {
   if (dx === 0 && dy === 0) return;
 
   p.dir = dx > 0 ? Dir.Right : dx < 0 ? Dir.Left : dy > 0 ? Dir.Down : Dir.Up;
-  if (dx !== 0) moveAxis(state, p, 0, dx, p.speed, true);
-  else moveAxis(state, p, 1, dy, p.speed, true);
+  // ドクロ中は実効速度が落ちる。クライアント予測もこの関数を通るので予測がズレない
+  const speed = p.skullTicks > 0 ? Math.min(SKULL_SPEED, p.speed) : p.speed;
+  if (dx !== 0) moveAxis(state, p, 0, dx, speed, true);
+  else moveAxis(state, p, 1, dy, speed, true);
 }

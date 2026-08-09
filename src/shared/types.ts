@@ -15,6 +15,10 @@ export const enum Powerup {
   Fire = 0,
   Bomb = 1,
   Speed = 2,
+  /** 貫通爆弾: 爆風がソフトブロックで止まらず、レンジ分まっすぐ突き抜ける */
+  Pierce = 3,
+  /** ドクロ: 一定時間 fire/bombCap/speed が最低値に落ちるデバフ（罠） */
+  Skull = 4,
 }
 
 // 入力の 5bit ビットマスク
@@ -39,6 +43,8 @@ export interface Player {
   fire: number; // 爆風レンジ
   bombCap: number; // 同時設置数
   bombsActive: number;
+  pierce: boolean; // 貫通爆弾を持っているか
+  skullTicks: number; // ドクロデバフの残り tick（0=なし）
   keys: number; // 現在押下中ビットマスク
   prevKeys: number; // 爆弾ボタンのエッジ検出用
 }
@@ -50,6 +56,7 @@ export interface Bomb {
   ownerSlot: number;
   fuse: number; // 残り tick
   range: number; // 設置時点の owner.fire をコピー
+  pierce: boolean; // 設置時点の owner.pierce をコピー
   passableBy: number; // 設置時にこのマスへ重なっていたプレイヤーのビットマスク
 }
 

@@ -7,6 +7,10 @@ import {
   FUSE_TICKS,
   HALF_TILE,
   MATCH_MAX_TICKS,
+  SKULL_BOMB_CAP,
+  SKULL_FIRE,
+  SKULL_SPEED,
+  SKULL_TICKS,
   SPAWNS,
   SPEED_INC,
   SPEED_MAX,
@@ -44,6 +48,8 @@ export function createPlayer(slot: number): Player {
     fire: 1,
     bombCap: 1,
     bombsActive: 0,
+    pierce: false,
+    skullTicks: 0,
     keys: 0,
     prevKeys: 0,
   };
@@ -114,7 +120,6 @@ function resolveExplosions(state: GameState, queue: Bomb[]): void {
         const t = tileAt(state.grid, cx, cy);
         if (t === Tile.Hard) break;
         if (t === Tile.Soft) {
-          // ソフトブロックを1枚破壊して遮蔽
           state.grid[idx(cx, cy)] = Tile.Floor;
           state.gridDiffs.push([cx, cy, Tile.Floor]);
           const hidden = state.hiddenItems[idx(cx, cy)] ?? 0;
@@ -126,6 +131,11 @@ function resolveExplosions(state: GameState, queue: Bomb[]): void {
               revealTick: state.tick + BLAST_TICKS,
             });
             state.hiddenItems[idx(cx, cy)] = 0;
+          }
+          // 貫通爆弾はブロックを壊しても止まらず、レンジ分まで突き抜ける
+          if (bomb.pierce) {
+            addBlast(state, cx, cy, dir, step === bomb.range ? 2 : 1);
+            continue;
           }
           addBlast(state, cx, cy, dir, 2);
           break;
@@ -153,7 +163,7 @@ function resolveExplosions(state: GameState, queue: Bomb[]): void {
 function tryPlaceBomb(state: GameState, p: Player): void {
   const pressed = (p.keys & Key.Bomb) !== 0 && (p.prevKeys & Key.Bomb) === 0;
   if (!pressed) return;
-  if (p.bombsActive >= p.bombCap) return;
+  if (p.bombsActive >= effectiveBombCap(p)) return;
 
   const cx = centerTileX(p);
   const cy = centerTileY(p);
@@ -173,11 +183,23 @@ function tryPlaceBomb(state: GameState, p: Player): void {
     cy,
     ownerSlot: p.slot,
     fuse: FUSE_TICKS,
-    range: p.fire, // 設置時点の能力をコピー（後からの強化は既設爆弾に影響しない）
+    range: effectiveFire(p), // 設置時点の能力をコピー（後からの強化は既設爆弾に影響しない）
+    pierce: p.pierce,
     passableBy,
   });
   p.bombsActive++;
   state.events.push(["place", p.slot]);
+}
+
+// ドクロ中の実効能力。素の値は保持しておき、デバフが切れたら元に戻る
+export function effectiveFire(p: Player): number {
+  return p.skullTicks > 0 ? Math.min(SKULL_FIRE, p.fire) : p.fire;
+}
+export function effectiveBombCap(p: Player): number {
+  return p.skullTicks > 0 ? Math.min(SKULL_BOMB_CAP, p.bombCap) : p.bombCap;
+}
+export function effectiveSpeed(p: Player): number {
+  return p.skullTicks > 0 ? Math.min(SKULL_SPEED, p.speed) : p.speed;
 }
 
 function pickupItem(state: GameState, p: Player): void {
@@ -195,6 +217,13 @@ function pickupItem(state: GameState, p: Player): void {
         break;
       case Powerup.Speed:
         p.speed = Math.min(SPEED_MAX, p.speed + SPEED_INC);
+        break;
+      case Powerup.Pierce:
+        p.pierce = true;
+        break;
+      case Powerup.Skull:
+        // 罠。取ると一定時間、能力が最低値に落ちる（貫通は失わない）
+        p.skullTicks = SKULL_TICKS;
         break;
     }
     state.items.splice(i, 1);
@@ -238,6 +267,7 @@ export function stepGame(state: GameState, inputs: InputMap): void {
   // 4. プレイヤー処理（slot 昇順）
   for (const p of state.players) {
     if (!p.alive) continue;
+    if (p.skullTicks > 0) p.skullTicks--;
     p.prevKeys = p.keys;
     p.keys = inputs[p.slot] ?? 0;
     tryPlaceBomb(state, p);

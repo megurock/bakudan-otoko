@@ -68,9 +68,19 @@ export function createMap(rng: RngState, slots: readonly number[]): MapData {
       if (randBelow(rng, 100) < SOFT_FILL_PCT) {
         grid[i] = Tile.Soft;
         if (randBelow(rng, 100) < DROP_PCT) {
-          // Fire : Bomb : Speed = 4 : 3 : 3
-          const r = randBelow(rng, 10);
-          const kind = r < 4 ? Powerup.Fire : r < 7 ? Powerup.Bomb : Powerup.Speed;
+          // Fire:7 Bomb:6 Speed:5 Pierce:1 Skull:1（計 20）
+          // Pierce は強力なので希少に、Skull は罠なので少量だけ混ぜる
+          const r = randBelow(rng, 20);
+          const kind =
+            r < 7
+              ? Powerup.Fire
+              : r < 13
+                ? Powerup.Bomb
+                : r < 18
+                  ? Powerup.Speed
+                  : r < 19
+                    ? Powerup.Pierce
+                    : Powerup.Skull;
           hiddenItems[i] = kind + 1;
         }
       }

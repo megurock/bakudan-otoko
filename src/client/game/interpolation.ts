@@ -10,9 +10,11 @@ export interface InterpPlayer {
   dir: number;
   alive: boolean;
   connected: boolean;
+  pierce: boolean;
   fire: number;
   bombCap: number;
   speed: number;
+  skullTicks: number;
 }
 
 interface BufferedSnap {
@@ -70,7 +72,7 @@ export class SnapBuffer {
 
     const result: InterpPlayer[] = [];
     for (const pNew of newer.snap.p) {
-      const [slot, x1, y1, dir, flags, fire, bombCap, speed] = pNew;
+      const [slot, x1, y1, dir, flags, fire, bombCap, speed, skullTicks] = pNew;
       const pOld = older.snap.p.find((q) => q[0] === slot) ?? pNew;
       const [, x0, y0] = pOld;
       result.push({
@@ -80,9 +82,11 @@ export class SnapBuffer {
         dir,
         alive: (flags & 1) !== 0,
         connected: (flags & 2) !== 0,
+        pierce: (flags & 4) !== 0,
         fire,
         bombCap,
         speed,
+        skullTicks,
       });
     }
     return result;

@@ -24,10 +24,11 @@ export type SnapPlayer = [
   x: number,
   y: number,
   dir: number,
-  flags: number, // bit0=alive bit1=connected
+  flags: number, // bit0=alive bit1=connected bit2=pierce
   fire: number,
   bombCap: number,
   speed: number,
+  skullTicks: number,
 ];
 export type SnapBomb = [
   id: number,
@@ -36,6 +37,7 @@ export type SnapBomb = [
   fuse: number,
   range: number,
   ownerSlot: number,
+  pierce: 0 | 1,
 ];
 export type SnapBlast = [cx: number, cy: number, dir: number, shape: number];
 export type SnapItem = [cx: number, cy: number, kind: number];
@@ -139,12 +141,21 @@ export function buildSnap(state: GameState, ackSeqs: number[]): Snap {
       p.x,
       p.y,
       p.dir,
-      (p.alive ? 1 : 0) | (p.connected ? 2 : 0),
+      (p.alive ? 1 : 0) | (p.connected ? 2 : 0) | (p.pierce ? 4 : 0),
       p.fire,
       p.bombCap,
       p.speed,
+      p.skullTicks,
     ]),
-    b: state.bombs.map((b) => [b.id, b.cx, b.cy, b.fuse, b.range, b.ownerSlot]),
+    b: state.bombs.map((b) => [
+      b.id,
+      b.cx,
+      b.cy,
+      b.fuse,
+      b.range,
+      b.ownerSlot,
+      b.pierce ? 1 : 0,
+    ]),
     f: state.blasts.map((bl) => [bl.cx, bl.cy, bl.dir, bl.shape]),
     u: state.items
       .filter((it) => it.revealTick <= state.tick)

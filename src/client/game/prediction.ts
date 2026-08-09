@@ -56,6 +56,8 @@ export class Prediction {
       fire: 1,
       bombCap: 1,
       bombsActive: 0,
+      pierce: false,
+      skullTicks: 0,
       keys: 0,
       prevKeys: 0,
     };
@@ -121,18 +123,19 @@ export class Prediction {
   onSnap(snap: Snap, grid: Uint8Array): void {
     const server = snap.p.find((p) => p[0] === this.slot);
     if (!server) return;
-    const [, sx, sy, , flags, fire, bombCap, speed] = server;
+    const [, sx, sy, , flags, fire, bombCap, speed, skullTicks] = server;
 
     // 世界を最新化（爆弾は snap の値をそのまま採用）
     this.world.grid = grid;
     this.world.bombs = snap.b.map(
-      ([id, cx, cy, fuse, range, ownerSlot]): Bomb => ({
+      ([id, cx, cy, fuse, range, ownerSlot, pierce]): Bomb => ({
         id,
         cx,
         cy,
         ownerSlot,
         fuse,
         range,
+        pierce: pierce === 1,
         // 自分が上に乗っている爆弾の passableBy はサーバーが権威だが snap に含めない。
         // 自マスの爆弾のみ通過可として近似（設置直後の予測用）
         passableBy:
@@ -142,9 +145,11 @@ export class Prediction {
       }),
     );
     this.me.alive = (flags & 1) !== 0;
+    this.me.pierce = (flags & 4) !== 0;
     this.me.fire = fire;
     this.me.bombCap = bombCap;
     this.me.speed = speed;
+    this.me.skullTicks = skullTicks;
     if (!this.me.alive) return;
 
     if (!this.started) {

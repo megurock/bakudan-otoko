@@ -10,6 +10,10 @@ import {
   MAP_W,
   MATCH_MAX_TICKS,
   PLAYER_HALF,
+  SKULL_BOMB_CAP,
+  SKULL_FIRE,
+  SKULL_SPEED,
+  SKULL_TICKS,
   SPAWNS,
   SPEED_INC,
   SPEED_MAX,
@@ -25,7 +29,14 @@ import {
 import { createMap, idx, tileAt } from "./map";
 import { collides, movePlayer, tilePassable } from "./movement";
 import { buildSnap, decodeC2S, decodeGrid, encode, encodeGrid } from "./protocol";
-import { createInitialState, createPlayer, stepGame } from "./step";
+import {
+  createInitialState,
+  createPlayer,
+  effectiveBombCap,
+  effectiveFire,
+  effectiveSpeed,
+  stepGame,
+} from "./step";
 import { Dir, Key, Powerup, Tile, type GameState } from "./types";
 
 // ===== テストヘルパー =====
@@ -65,8 +76,26 @@ function stateHash(state: GameState): string {
   return JSON.stringify({
     tick: state.tick,
     grid: Array.from(state.grid),
-    players: state.players.map((p) => [p.slot, p.x, p.y, p.alive, p.fire, p.bombCap, p.speed]),
-    bombs: state.bombs.map((b) => [b.id, b.cx, b.cy, b.fuse, b.range, b.passableBy]),
+    players: state.players.map((p) => [
+      p.slot,
+      p.x,
+      p.y,
+      p.alive,
+      p.fire,
+      p.bombCap,
+      p.speed,
+      p.pierce,
+      p.skullTicks,
+    ]),
+    bombs: state.bombs.map((b) => [
+      b.id,
+      b.cx,
+      b.cy,
+      b.fuse,
+      b.range,
+      b.passableBy,
+      b.pierce,
+    ]),
     blasts: state.blasts.map((b) => [b.cx, b.cy, b.ticks]),
     items: state.items.map((i) => [i.cx, i.cy, i.kind, i.revealTick]),
     winner: state.winnerSlot,
@@ -143,6 +172,33 @@ describe("map", () => {
     const dropRate = drops / softTotal;
     expect(dropRate).toBeGreaterThan(0.24);
     expect(dropRate).toBeLessThan(0.36);
+  });
+
+  it("5種類すべてのアイテムが出現し、Pierce と Skull は希少", () => {
+    const counts = new Map<number, number>();
+    for (let seed = 0; seed < 200; seed++) {
+      const { hiddenItems } = createMap({ seed }, ALL_SLOTS);
+      for (const v of hiddenItems) {
+        if (v === 0) continue;
+        const kind = v - 1;
+        counts.set(kind, (counts.get(kind) ?? 0) + 1);
+      }
+    }
+    // 5種すべてが出る
+    for (const kind of [
+      Powerup.Fire,
+      Powerup.Bomb,
+      Powerup.Speed,
+      Powerup.Pierce,
+      Powerup.Skull,
+    ]) {
+      expect(counts.get(kind) ?? 0).toBeGreaterThan(0);
+    }
+    // Pierce / Skull は通常アイテムより明確に少ない（各 1/20）
+    const total = [...counts.values()].reduce((a, b) => a + b, 0);
+    expect((counts.get(Powerup.Pierce) ?? 0) / total).toBeLessThan(0.1);
+    expect((counts.get(Powerup.Skull) ?? 0) / total).toBeLessThan(0.1);
+    expect((counts.get(Powerup.Fire) ?? 0) / total).toBeGreaterThan(0.25);
   });
 });
 
@@ -405,6 +461,106 @@ describe("death & win", () => {
     expect(state.players[0]!.fire).toBe(2);
     expect(bomb.range).toBe(1); // 既設爆弾は据え置き
   });
+
+  it("貫通爆弾はソフトブロックを突き抜けて奥まで爆風が届く", () => {
+    const state = bareState();
+    placeAt(state, 0, 3, 3);
+    placeAt(state, 1, 13, 13);
+    const p = state.players[0]!;
+    p.fire = 4;
+    // 右方向に連続するソフトブロックを置く
+    state.grid[idx(4, 3)] = Tile.Soft;
+    state.grid[idx(5, 3)] = Tile.Soft;
+
+    // 通常爆弾: 手前の 1 枚で止まる
+    stepGame(state, inputs({ 0: Key.Bomb }));
+    for (let i = 0; i < FUSE_TICKS; i++) stepGame(state, inputs({}));
+    expect(state.blasts.some((b) => b.cx === 4 && b.cy === 3)).toBe(true);
+    expect(state.blasts.some((b) => b.cx === 5 && b.cy === 3)).toBe(false);
+
+    // 貫通爆弾: ブロックを壊しつつ奥まで届く
+    const state2 = bareState();
+    placeAt(state2, 0, 3, 3);
+    placeAt(state2, 1, 13, 13);
+    const q = state2.players[0]!;
+    q.fire = 4;
+    q.pierce = true;
+    state2.grid[idx(4, 3)] = Tile.Soft;
+    state2.grid[idx(5, 3)] = Tile.Soft;
+    stepGame(state2, inputs({ 0: Key.Bomb }));
+    for (let i = 0; i < FUSE_TICKS; i++) stepGame(state2, inputs({}));
+    expect(state2.blasts.some((b) => b.cx === 4 && b.cy === 3)).toBe(true);
+    expect(state2.blasts.some((b) => b.cx === 5 && b.cy === 3)).toBe(true);
+    expect(state2.blasts.some((b) => b.cx === 6 && b.cy === 3)).toBe(true);
+    // Hard は貫通しない
+    expect(state2.blasts.some((b) => b.cx === 7 && b.cy === 3)).toBe(true);
+  });
+
+  it("ドクロは一定時間だけ能力を落とし、切れると元に戻る", () => {
+    const state = bareState();
+    placeAt(state, 0, 3, 3);
+    placeAt(state, 1, 13, 13);
+    const p = state.players[0]!;
+    p.fire = 5;
+    p.bombCap = 4;
+    p.speed = SPEED_MAX;
+
+    state.items.push({ cx: 3, cy: 3, kind: Powerup.Skull, revealTick: 0 });
+    stepGame(state, inputs({}));
+    expect(p.skullTicks).toBeGreaterThan(0);
+    // 素の値は保持されている（実効値だけが落ちる）
+    expect(p.fire).toBe(5);
+    expect(p.bombCap).toBe(4);
+    expect(effectiveFire(p)).toBe(SKULL_FIRE);
+    expect(effectiveBombCap(p)).toBe(SKULL_BOMB_CAP);
+    expect(effectiveSpeed(p)).toBe(SKULL_SPEED);
+
+    // 時間経過で解除され、実効値が元に戻る（爆弾は置かず、生存したまま数える）
+    for (let i = 0; i < SKULL_TICKS + 2; i++) stepGame(state, inputs({}));
+    expect(p.alive).toBe(true);
+    expect(p.skullTicks).toBe(0);
+    expect(effectiveFire(p)).toBe(5);
+    expect(effectiveBombCap(p)).toBe(4);
+    expect(effectiveSpeed(p)).toBe(SPEED_MAX);
+  });
+
+  it("ドクロ中に置いた爆弾はレンジと設置数が落ちる", () => {
+    const state = bareState();
+    placeAt(state, 0, 3, 3);
+    placeAt(state, 1, 13, 13);
+    const p = state.players[0]!;
+    p.fire = 5;
+    p.bombCap = 4;
+    p.skullTicks = SKULL_TICKS;
+
+    stepGame(state, inputs({ 0: Key.Bomb }));
+    expect(state.bombs[0]!.range).toBe(SKULL_FIRE);
+
+    // 設置数上限も落ちるので、離れた場所でも2個目は置けない
+    for (let i = 0; i < 6; i++) stepGame(state, inputs({ 0: Key.Right }));
+    stepGame(state, inputs({ 0: Key.Bomb }));
+    expect(state.bombs).toHaveLength(SKULL_BOMB_CAP);
+  });
+
+  it("ドクロ中は移動速度が落ちる", () => {
+    const state = bareState();
+    placeAt(state, 0, 3, 3);
+    const p = state.players[0]!;
+    p.speed = SPEED_MAX;
+
+    const x0 = p.x;
+    movePlayer(state, p, Key.Right);
+    const normalStep = p.x - x0;
+
+    p.skullTicks = SKULL_TICKS;
+    const x1 = p.x;
+    movePlayer(state, p, Key.Right);
+    const skullStep = p.x - x1;
+
+    expect(normalStep).toBe(SPEED_MAX);
+    expect(skullStep).toBe(SKULL_SPEED);
+    expect(skullStep).toBeLessThan(normalStep);
+  });
 });
 
 // ===== 5. 決定論・reconciliation 不変条件 =====
@@ -471,6 +627,28 @@ describe("protocol", () => {
     expect(snap.a).toEqual([5, 3]);
     const p0 = snap.p[0]!;
     expect(p0[4] & 1).toBe(1); // alive フラグ
+  });
+
+  it("buildSnap が貫通フラグとドクロ残 tick を載せる", () => {
+    const state = bareState();
+    placeAt(state, 0, 3, 3);
+    const p = state.players[0]!;
+    p.pierce = true;
+    p.skullTicks = 42;
+    stepGame(state, inputs({ 0: Key.Bomb }));
+
+    const snap = buildSnap(state, [0, 0]);
+    const mine = snap.p.find((q) => q[0] === 0)!;
+    expect(mine[4] & 4).toBe(4); // pierce フラグ
+    expect(mine[8]).toBe(41); // stepGame でデクリメントされた残り tick
+
+    // 設置した爆弾にも貫通が伝わる
+    expect(snap.b[0]![6]).toBe(1);
+
+    // 貫通していないプレイヤーはフラグが立たない
+    const other = snap.p.find((q) => q[0] === 1)!;
+    expect(other[4] & 4).toBe(0);
+    expect(other[8]).toBe(0);
   });
 });
 

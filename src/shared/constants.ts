@@ -33,6 +33,12 @@ export const CORNER_SLIDE_MAX = 112;
 export const SOFT_FILL_PCT = 75;
 export const DROP_PCT = 30;
 
+// ドクロデバフの持続時間と、その間に落とされる能力値
+export const SKULL_TICKS = 10 * TICK_RATE; // 10 秒
+export const SKULL_FIRE = 1;
+export const SKULL_BOMB_CAP = 1;
+export const SKULL_SPEED = 24; // BASE_SPEED(32) より遅い
+
 // フェーズ時間
 // 全員 Ready から実際の開始までの猶予（ms）。
 // この間に Ready を外せば中止できる。入室待ちの相手がいるときの押し間違いを救う
