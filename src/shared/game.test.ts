@@ -68,18 +68,20 @@ function stateHash(state: GameState): string {
 
 // ===== 1. マップ生成 =====
 
+const ALL_SLOTS = [0, 1, 2, 3, 4, 5];
+
 describe("map", () => {
   it("同一 seed から同一マップ・同一隠しアイテムが生成される（決定論）", () => {
-    const a = createMap({ seed: 42 }, 6);
-    const b = createMap({ seed: 42 }, 6);
+    const a = createMap({ seed: 42 }, ALL_SLOTS);
+    const b = createMap({ seed: 42 }, ALL_SLOTS);
     expect(Array.from(a.grid)).toEqual(Array.from(b.grid));
     expect(Array.from(a.hiddenItems)).toEqual(Array.from(b.hiddenItems));
-    const c = createMap({ seed: 43 }, 6);
+    const c = createMap({ seed: 43 }, ALL_SLOTS);
     expect(Array.from(c.grid)).not.toEqual(Array.from(a.grid));
   });
 
   it("外周と偶数格子が Hard、スポーン周辺が Floor", () => {
-    const { grid } = createMap({ seed: 1 }, 6);
+    const { grid } = createMap({ seed: 1 }, ALL_SLOTS);
     for (let cx = 0; cx < MAP_W; cx++) {
       expect(tileAt(grid, cx, 0)).toBe(Tile.Hard);
       expect(tileAt(grid, cx, MAP_H - 1)).toBe(Tile.Hard);
@@ -94,12 +96,32 @@ describe("map", () => {
     expect(tileAt(grid, 1, 2)).toBe(Tile.Floor);
   });
 
+  it("歯抜け slot でも全参加者のスポーン地点が Floor（レンガ埋まり回帰）", () => {
+    // 例: slot 1 が離脱して [0, 2] で開始するケース
+    const slots = [0, 2];
+    for (let seed = 0; seed < 100; seed++) {
+      const state = createInitialState(seed, slots);
+      for (const p of state.players) {
+        const [sx, sy] = SPAWNS[p.slot]!;
+        expect(tileAt(state.grid, sx, sy)).toBe(Tile.Floor);
+        // 脱出路: 隣接4方向のうち少なくとも1マスは Floor
+        const exits = [
+          tileAt(state.grid, sx + 1, sy),
+          tileAt(state.grid, sx - 1, sy),
+          tileAt(state.grid, sx, sy + 1),
+          tileAt(state.grid, sx, sy - 1),
+        ].filter((t) => t === Tile.Floor).length;
+        expect(exits).toBeGreaterThan(0);
+      }
+    }
+  });
+
   it("ソフト配置率とドロップ率が期待範囲（seed 100個の統計）", () => {
     let softTotal = 0;
     let floorCandidates = 0;
     let drops = 0;
     for (let seed = 0; seed < 100; seed++) {
-      const { grid, hiddenItems } = createMap({ seed }, 6);
+      const { grid, hiddenItems } = createMap({ seed }, ALL_SLOTS);
       for (let i = 0; i < grid.length; i++) {
         if (grid[i] === Tile.Soft) {
           softTotal++;
@@ -425,7 +447,7 @@ describe("protocol", () => {
   });
 
   it("グリッドの encode → decode ラウンドトリップ", () => {
-    const { grid } = createMap({ seed: 5 }, 6);
+    const { grid } = createMap({ seed: 5 }, ALL_SLOTS);
     const decoded = decodeGrid(encodeGrid(grid));
     expect(Array.from(decoded)).toEqual(Array.from(grid));
   });

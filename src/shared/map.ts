@@ -25,8 +25,9 @@ export interface MapData {
 /**
  * マップ生成。外周とハード格子柱 + ソフトブロック + 隠しアイテム配置。
  * ドロップはこの時点で確定するため playing 中のシミュレーションは乱数フリー。
+ * slots は参加プレイヤーの slot 番号（歯抜けあり得る）。各 SPAWNS[slot] 周辺を予約する。
  */
-export function createMap(rng: RngState, playerCount: number): MapData {
+export function createMap(rng: RngState, slots: readonly number[]): MapData {
   const grid = new Uint8Array(MAP_W * MAP_H);
   const hiddenItems = new Uint8Array(MAP_W * MAP_H);
 
@@ -41,7 +42,7 @@ export function createMap(rng: RngState, playerCount: number): MapData {
 
   // スポーン周辺の予約（ソフトブロックを置かない）: 本人マス + 各方向へ距離2まで
   const reserved = new Set<number>();
-  const spawns = SPAWNS.slice(0, Math.max(playerCount, 2));
+  const spawns = slots.map((s) => SPAWNS[s] ?? SPAWNS[0]!);
   for (const [sx, sy] of spawns) {
     reserved.add(idx(sx, sy));
     for (const [dx, dy] of [

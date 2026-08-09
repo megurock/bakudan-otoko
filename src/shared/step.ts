@@ -52,7 +52,7 @@ export function createPlayer(slot: number): Player {
 /** 試合開始用の初期状態を生成（countdown フェーズから始まる） */
 export function createInitialState(seed: number, slots: number[]): GameState {
   const rng: RngState = { seed };
-  const map = createMap(rng, slots.length);
+  const map = createMap(rng, slots);
   return {
     tick: 0,
     phase: "countdown",
