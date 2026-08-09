@@ -13,6 +13,7 @@ export interface RosterEntry {
 export type C2S =
   | { t: "join"; name: string; token?: string }
   | { t: "ready"; ready: boolean }
+  | { t: "setWinTarget"; winTarget: number }
   | { t: "input"; seq: number; tick: number; keys: number }
   | { t: "ping"; ts: number };
 
@@ -63,6 +64,9 @@ export type S2C =
       token: string;
       phase: Phase;
       roster: RosterEntry[];
+      winTarget: number;
+      wins: number[];
+      round: number;
       proto: 1;
     }
   | { t: "joinRejected"; reason: "full" | "in_progress" | "bad_token" }
@@ -79,7 +83,21 @@ export type S2C =
       slots: number[];
     }
   | Snap
-  | { t: "gameover"; winnerSlot: number } // -1 = 引き分け
+  // シリーズ（何勝先取）の状態。wins は slot → 勝数
+  | {
+      t: "series";
+      winTarget: number;
+      wins: number[];
+      round: number;
+      championSlot: number | null; // 先取達成者。null = 続行中
+    }
+  | {
+      t: "gameover";
+      winnerSlot: number; // -1 = 引き分け
+      wins: number[];
+      winTarget: number;
+      championSlot: number | null; // シリーズ全体の勝者。null = 次戦へ
+    }
   | { t: "aborted"; reason: string }
   | { t: "pong"; ts: number; serverTick: number };
 

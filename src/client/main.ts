@@ -2,12 +2,14 @@
 
 import {
   COUNTDOWN_TICKS,
+  DEFAULT_WIN_TARGET,
   HALF_TILE,
   MAP_W,
   SPAWNS,
   START_GRACE_MS,
   SUB,
   TICK_RATE,
+  WIN_TARGET_OPTIONS,
 } from "../shared/constants";
 import { decodeGrid, type RosterEntry, type S2C } from "../shared/protocol";
 import { InputTracker } from "./game/input";
@@ -40,6 +42,7 @@ function startGame(app: HTMLElement, roomId: string): void {
     <span id="stats" style="margin-left:16px"></span>
   </div>
   <div id="rosterView" style="margin-bottom:8px;min-height:1.2em"></div>
+  <div id="seriesView" style="margin-bottom:8px;min-height:1.2em;font-size:13px"></div>
   <div id="startHint" style="margin-bottom:8px;min-height:1.4em;color:#888;font-size:13px"></div>
   <canvas id="game" style="border:2px solid #444;max-width:100%;image-rendering:pixelated"></canvas>
   <p style="color:#888">移動: 矢印キー / WASD ・ 爆弾: Space / Z ・ <a href="?help" style="color:#6af">遊び方</a> ・ <a href="./" style="color:#6af">ロビーへ戻る</a>
@@ -72,6 +75,60 @@ const snapBuffer = new SnapBuffer();
 const debugEl = document.getElementById("debug")!;
 const statsEl = document.getElementById("stats")!;
 const startHintEl = document.getElementById("startHint")!;
+const seriesEl = document.getElementById("seriesView")!;
+
+// シリーズ（何勝先取）の状態
+let winTarget = DEFAULT_WIN_TARGET;
+let wins: number[] = [];
+let round = 0;
+let championSlot: number | null = null;
+
+/** 何勝先取の設定 UI と現在のスコアを描画 */
+function renderSeries(): void {
+  const waiting = readyBtn.style.display !== "none";
+  const inSeries = round > 0;
+
+  // 待機中かつシリーズ未開始のときだけ設定を変更できる
+  if (waiting && !inSeries) {
+    const opts = WIN_TARGET_OPTIONS.map((n) => {
+      const on = n === winTarget;
+      const label = n === 1 ? "1本勝負" : `${n}本先取`;
+      return (
+        `<button data-target="${n}" style="margin-right:6px;padding:3px 10px;` +
+        `background:${on ? "#3f8ce8" : "#2a2a3e"};color:${on ? "#fff" : "#aaa"};` +
+        `border:1px solid ${on ? "#5aa4f0" : "#444"};border-radius:4px;cursor:pointer">${label}</button>`
+      );
+    }).join("");
+    seriesEl.innerHTML = `<span style="color:#888;margin-right:8px">勝敗形式:</span>${opts}`;
+    for (const btn of seriesEl.querySelectorAll<HTMLButtonElement>("button[data-target]")) {
+      btn.addEventListener("click", () => {
+        net.send({ t: "setWinTarget", winTarget: Number(btn.dataset.target) });
+      });
+    }
+    return;
+  }
+
+  // シリーズ中はスコアボードを表示
+  if (inSeries) {
+    const scores = roster
+      .map((r) => {
+        const w = wins[r.slot] ?? 0;
+        const color = SLOT_THEMES[r.slot]?.primary ?? "#fff";
+        const champ = championSlot === r.slot ? " 👑" : "";
+        return (
+          `<span style="margin-right:14px"><span style="color:${color}">■</span> ` +
+          `${r.name} <strong>${w}</strong>${champ}</span>`
+        );
+      })
+      .join("");
+    const label = winTarget === 1 ? "1本勝負" : `${winTarget}本先取`;
+    seriesEl.innerHTML =
+      `<span style="color:#888;margin-right:8px">${label} / 第${round}試合</span>${scores}`;
+    return;
+  }
+
+  seriesEl.innerHTML = "";
+}
 
 // 開始猶予。サーバーとクライアントの時計はズレうるので、絶対時刻ではなく
 // 「受信時点から START_GRACE_MS」をローカル時計で数える
@@ -152,9 +209,13 @@ function handleMessage(msg: S2C): void {
       token = msg.token;
       sessionStorage.setItem(`bm-token-${roomId}`, token);
       roster = msg.roster;
+      winTarget = msg.winTarget;
+      wins = msg.wins;
+      round = msg.round;
       if (msg.phase === "waiting") showWaitingUi();
       renderRoster();
       updateStartUi();
+      renderSeries();
       break;
     case "joinRejected":
       statusEl.textContent = `参加できません: ${msg.reason}`;
@@ -166,6 +227,7 @@ function handleMessage(msg: S2C): void {
         resetToWaitingUi();
       }
       updateStartUi();
+      renderSeries();
       break;
     case "startPending":
       startPendingUntil = performance.now() + START_GRACE_MS;
@@ -187,6 +249,7 @@ function handleMessage(msg: S2C): void {
       readyBtn.style.display = "none";
       clearStartPending();
       startHintEl.textContent = "";
+      championSlot = null;
       statusEl.textContent = `room: ${roomId}`;
       if (mySlot >= 0 && mySlot < SPAWNS.length) {
         const spawn = SPAWNS[mySlot]!;
@@ -209,9 +272,25 @@ function handleMessage(msg: S2C): void {
         if (msg.ph === "playing") prediction.syncClock(msg.k, net.rttMs);
       }
       break;
+    case "series":
+      winTarget = msg.winTarget;
+      wins = msg.wins;
+      round = msg.round;
+      championSlot = msg.championSlot;
+      renderSeries();
+      break;
     case "gameover":
       winnerSlot = msg.winnerSlot;
+      wins = msg.wins;
+      winTarget = msg.winTarget;
+      championSlot = msg.championSlot;
       prediction?.matchEnded();
+      renderSeries();
+      // シリーズ続行なら次の試合が自動で始まることを伝える
+      startHintEl.textContent =
+        msg.championSlot === null
+          ? "まもなく次の試合が始まります…"
+          : "";
       break;
     case "aborted":
       statusEl.textContent = `試合中断: ${msg.reason}`;
@@ -227,6 +306,7 @@ function showWaitingUi(): void {
   ready = false;
   clearStartPending();
   updateStartUi();
+  renderSeries();
 }
 
 function resetToWaitingUi(): void {
@@ -298,6 +378,9 @@ function frame(): void {
     roster,
     mySlot,
     winnerSlot,
+    championSlot,
+    winTarget,
+    wins,
     countdownEndTick,
   });
 

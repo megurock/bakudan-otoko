@@ -32,6 +32,9 @@ export interface DrawView {
   roster: RosterEntry[];
   mySlot: number;
   winnerSlot: number | null;
+  championSlot: number | null;
+  winTarget: number;
+  wins: number[];
   countdownEndTick: number;
 }
 
@@ -325,9 +328,11 @@ export class Renderer {
     }
 
     if (view.winnerSlot !== null) {
+      const champion = view.championSlot ?? null;
       g.fillStyle = "rgba(0,0,0,0.65)";
       g.fillRect(0, canvas.height / 2 - 70, canvas.width, 140);
       g.font = "bold 44px monospace";
+
       if (view.winnerSlot === -1) {
         g.fillStyle = "#fff";
         g.fillText("引き分け", canvas.width / 2, canvas.height / 2 + 14);
@@ -335,7 +340,19 @@ export class Renderer {
         const name =
           view.roster.find((r) => r.slot === view.winnerSlot)?.name ?? `P${view.winnerSlot}`;
         g.fillStyle = SLOT_THEMES[view.winnerSlot]?.primary ?? "#fff";
-        g.fillText(`${name} の勝ち!`, canvas.width / 2, canvas.height / 2 + 14);
+        // シリーズ優勝ならその旨を大きく出す
+        const label = champion === view.winnerSlot ? `${name} 優勝! 👑` : `${name} の勝ち!`;
+        g.fillText(label, canvas.width / 2, canvas.height / 2 + 14);
+      }
+
+      // シリーズ続行中はスコアと次戦予告を添える
+      if (champion === null && view.winTarget > 1) {
+        g.font = "18px monospace";
+        g.fillStyle = "#ddd";
+        const score = view.roster
+          .map((r) => `${r.name} ${view.wins[r.slot] ?? 0}`)
+          .join("  ");
+        g.fillText(`${score}  （${view.winTarget}本先取）`, canvas.width / 2, canvas.height / 2 + 50);
       }
     }
   }

@@ -1,9 +1,12 @@
 import {
   COUNTDOWN_TICKS,
+  DEFAULT_WIN_TARGET,
   FINISHED_RESET_MS,
   MAX_PLAYERS,
+  NEXT_ROUND_DELAY_MS,
   START_GRACE_MS,
   TICK_MS,
+  WIN_TARGET_OPTIONS,
 } from "../shared/constants";
 import {
   buildSnap,
@@ -50,6 +53,12 @@ export class RoomDO {
   private roomId: string | null = null;
 
   private game: GameState | null = null;
+  /** 何勝先取。ロビーで変更でき、シリーズ終了までは固定 */
+  private winTarget = DEFAULT_WIN_TARGET;
+  /** slot → 勝数。シリーズ中のみ意味を持つ */
+  private wins: number[] = new Array(MAX_PLAYERS).fill(0);
+  /** 何戦目か（1始まり） */
+  private round = 0;
   private pendingKeys: number[] = new Array(MAX_PLAYERS).fill(0);
   private lastSeq: number[] = new Array(MAX_PLAYERS).fill(0);
   /**
@@ -96,6 +105,8 @@ export class RoomDO {
       this.roster = new Map(stored.map((r) => [r.slot, r]));
     }
     this.roomId = (await this.ctx.storage.get<string>("roomId")) ?? null;
+    this.winTarget =
+      (await this.ctx.storage.get<number>("winTarget")) ?? DEFAULT_WIN_TARGET;
     this.loaded = true;
   }
 
@@ -161,6 +172,19 @@ export class RoomDO {
         this.lastSeq[att.slot] = msg.seq;
         const q = this.inputQueue[att.slot];
         if (q) enqueueInput(q, (this.game?.tick ?? 0) + 1, msg.tick, msg.keys & 31);
+        return;
+      }
+      case "setWinTarget": {
+        // 待機中のみ変更可。シリーズ途中で目標が動くと勝敗の意味が変わるため
+        if (this.game || this.round > 0) return;
+        const v = msg.winTarget;
+        if (!WIN_TARGET_OPTIONS.includes(v as (typeof WIN_TARGET_OPTIONS)[number])) return;
+        this.winTarget = v;
+        // 猶予中に条件が変わると紛らわしいので取り消す
+        this.cancelStartGrace();
+        await this.ctx.storage.put("winTarget", v);
+        this.broadcastSeries(null);
+        this.broadcastRoster();
         return;
       }
       case "ping": {
@@ -250,7 +274,13 @@ export class RoomDO {
     }
     this.broadcastRoster();
     this.reportLobby();
-    if (!this.game) await this.maybeStart();
+    if (this.game) return;
+    // シリーズの試合間に人数が足りなくなったら、次戦を待たずに畳む
+    if (this.round > 0 && this.roster.size < 2) {
+      await this.resetToWaiting("not_enough_players");
+      return;
+    }
+    await this.maybeStart();
   }
 
   // ===== 試合ライフサイクル =====
@@ -263,6 +293,8 @@ export class RoomDO {
    */
   private async maybeStart(): Promise<void> {
     if (this.game) return;
+    // シリーズ進行中（次戦待ち）は Ready 経由の開始を受け付けない
+    if (this.round > 0) return;
     const entries = [...this.roster.values()];
     const ready = entries.length >= 2 && entries.every((e) => e.ready);
 
@@ -290,8 +322,16 @@ export class RoomDO {
   private async beginMatch(): Promise<void> {
     if (this.game) return;
     const entries = [...this.roster.values()];
-    // 猶予中に状況が変わっていないか最終確認
-    if (entries.length < 2 || !entries.every((e) => e.ready)) return;
+    // シリーズ 1 戦目は「全員 Ready」が条件。2 戦目以降は続きなので Ready を求めない
+    const isFirstRound = this.round === 0;
+    if (entries.length < 2) {
+      if (!isFirstRound) await this.resetToWaiting("not_enough_players");
+      return;
+    }
+    if (isFirstRound && !entries.every((e) => e.ready)) return;
+
+    if (isFirstRound) this.wins.fill(0);
+    this.round++;
 
     const seed = (Math.random() * 0x100000000) >>> 0;
     const slots = entries.map((e) => e.slot);
@@ -311,6 +351,7 @@ export class RoomDO {
       grid: encodeGrid(this.game.grid),
       slots,
     });
+    this.broadcastSeries(null);
     this.reportLobby();
     this.startLoop();
   }
@@ -330,8 +371,7 @@ export class RoomDO {
 
       if (game.winnerSlot !== null) {
         // stepGame 内で finished へ遷移した
-        this.broadcast({ t: "gameover", winnerSlot: game.winnerSlot });
-        void this.endMatch();
+        void this.endMatch(game.winnerSlot);
         return;
       }
 
@@ -368,14 +408,52 @@ export class RoomDO {
     return inputs;
   }
 
-  private async endMatch(): Promise<void> {
+  /**
+   * 1 試合の決着処理。勝者に 1 勝加算し、先取条件を満たしたらシリーズ終了。
+   * 満たしていなければ一定時間後に次の試合を自動で開始する。
+   */
+  private async endMatch(winnerSlot: number): Promise<void> {
     this.stopLoop();
     await this.ctx.storage.delete("matchActive");
     await this.ctx.storage.deleteAlarm();
-    // 一定時間後に待機状態へ戻す
+
+    // 引き分け(-1)は加算しない
+    if (winnerSlot >= 0) this.wins[winnerSlot] = (this.wins[winnerSlot] ?? 0) + 1;
+
+    const champion = this.findChampion();
+    this.broadcast({
+      t: "gameover",
+      winnerSlot,
+      wins: [...this.wins],
+      winTarget: this.winTarget,
+      championSlot: champion,
+    });
+    // スコアボード用にシリーズ状態も更新して配る
+    this.broadcastSeries(champion);
+
+    if (champion !== null) {
+      // シリーズ終了 → 待機へ戻す
+      this.resetTimer = setTimeout(() => {
+        void this.resetToWaiting("");
+      }, FINISHED_RESET_MS);
+      return;
+    }
+
+    // シリーズ続行 → 次の試合を自動開始（Ready を押し直させない）。
+    // 前試合の GameState は畳んでおく（残っていると beginMatch が即 return する）
+    this.game = null;
     this.resetTimer = setTimeout(() => {
-      void this.resetToWaiting("");
-    }, FINISHED_RESET_MS);
+      this.resetTimer = null;
+      void this.beginMatch();
+    }, NEXT_ROUND_DELAY_MS);
+  }
+
+  /** 先取条件を満たした slot。まだなら null */
+  private findChampion(): number | null {
+    for (let s = 0; s < MAX_PLAYERS; s++) {
+      if ((this.wins[s] ?? 0) >= this.winTarget) return s;
+    }
+    return null;
   }
 
   private async resetToWaiting(abortReason: string): Promise<void> {
@@ -392,6 +470,9 @@ export class RoomDO {
     this.pendingKeys.fill(0);
     this.lastSeq.fill(0);
     this.clearInputQueues();
+    // シリーズを畳む（winTarget は次のシリーズにも引き継ぐ）
+    this.wins.fill(0);
+    this.round = 0;
 
     // 切断済みプレイヤーのスロットを解放し、ready をリセット
     for (const [slot, entry] of [...this.roster.entries()]) {
@@ -403,6 +484,7 @@ export class RoomDO {
     await this.ctx.storage.deleteAlarm();
 
     if (abortReason) this.broadcast({ t: "aborted", reason: abortReason });
+    this.broadcastSeries(null);
     this.broadcastRoster();
     this.reportLobby();
   }
@@ -503,6 +585,16 @@ export class RoomDO {
       }));
   }
 
+  private broadcastSeries(championSlot: number | null): void {
+    this.broadcast({
+      t: "series",
+      winTarget: this.winTarget,
+      wins: [...this.wins],
+      round: this.round,
+      championSlot,
+    });
+  }
+
   private broadcastRoster(): void {
     this.broadcast({
       t: "roster",
@@ -518,6 +610,9 @@ export class RoomDO {
       token,
       phase: this.game?.phase ?? "waiting",
       roster: this.rosterEntries(),
+      winTarget: this.winTarget,
+      wins: [...this.wins],
+      round: this.round,
       proto: 1,
     });
   }

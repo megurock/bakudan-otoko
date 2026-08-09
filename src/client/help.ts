@@ -101,12 +101,30 @@ export function renderHelp(app: HTMLElement): void {
       <ol style="line-height:1.9;padding-left:20px">
         <li>ロビーでルームを作るか、一覧から参加します。</li>
         <li>対戦相手が集まるまで待ちます（2人以上で開始できます）。</li>
+        <li><strong>勝敗形式</strong>を選びます（1本勝負 / 2・3・5本先取）。全員に共有されます。</li>
         <li>全員が <strong>Ready</strong> を押すと、5秒のカウントダウンのあと試合が始まります。</li>
         <li>まだ来ていない人がいるときは、カウントダウン中に <strong>Cancel</strong> を押せば中止できます。</li>
       </ol>
       <p style="color:#888;line-height:1.7">
         カウントダウン中に新しい人が入室した場合は、自動で中止されます。あわてて Ready を押しても、
         あとから来た人を締め出すことはありません。
+      </p>
+    </section>
+
+    <section style="margin-bottom:24px">
+      <h2 style="font-size:1.15em;border-bottom:1px solid #444;padding-bottom:4px">勝敗形式（何本先取）</h2>
+      <p style="line-height:1.7">
+        待機中に <strong>1本勝負 / 2本先取 / 3本先取 / 5本先取</strong> を選べます。
+        先取を選ぶと、決着がつくまで同じメンバーで試合を繰り返します。
+      </p>
+      <ul style="line-height:1.9;padding-left:20px">
+        <li>1試合終わるたびにスコアが加算され、画面上部に表示されます。</li>
+        <li>次の試合は<strong>5秒後に自動で始まります</strong>。Ready を押し直す必要はありません。</li>
+        <li>引き分け（3分経過や相打ち）はどちらの勝ちにもなりません。</li>
+        <li>先取数に到達した人が 👑 優勝です。そのあと待機画面に戻ります。</li>
+      </ul>
+      <p style="color:#888;line-height:1.7">
+        シリーズの途中で人数が2人未満になった場合は、その場で中断して待機画面に戻ります。
       </p>
     </section>
 

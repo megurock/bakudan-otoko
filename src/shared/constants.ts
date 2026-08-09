@@ -50,6 +50,12 @@ export const FINISHED_RESET_MS = 8000;
 
 export const MAX_PLAYERS = 6;
 
+// 何勝先取（シリーズ）。選べる値と既定値
+export const WIN_TARGET_OPTIONS = [1, 2, 3, 5] as const;
+export const DEFAULT_WIN_TARGET = 1;
+// 次の試合が自動で始まるまでの間（ms）。勝敗を見せてから次へ
+export const NEXT_ROUND_DELAY_MS = 5000;
+
 // スポーン地点（タイル座標）: 四隅 + 上下辺中央
 export const SPAWNS: ReadonlyArray<readonly [number, number]> = [
   [1, 1],
