@@ -45,7 +45,7 @@ function startGame(app: HTMLElement, roomId: string): void {
   <div id="seriesView" style="margin-bottom:8px;min-height:1.2em;font-size:13px"></div>
   <div id="startHint" style="margin-bottom:8px;min-height:1.4em;color:#888;font-size:13px"></div>
   <canvas id="game" style="border:2px solid #444;max-width:100%;image-rendering:pixelated"></canvas>
-  <p style="color:#888">移動: 矢印キー / WASD ・ 爆弾: Space / Z ・ <a href="?help" style="color:#6af">遊び方</a> ・ <a href="./" style="color:#6af">ロビーへ戻る</a>
+  <p style="color:#888">移動: 矢印キー / WASD ・ 爆弾: Space / Z ・ <a href="./" style="color:#6af">ロビーへ戻る</a>
     <span id="debug" style="float:right;color:#555;font-size:11px"></span></p>
 `;
 
