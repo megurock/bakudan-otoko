@@ -7,6 +7,7 @@ import {
   SPAWNS,
   START_GRACE_MS,
   SUB,
+  TICK_RATE,
 } from "../shared/constants";
 import { decodeGrid, type RosterEntry, type S2C } from "../shared/protocol";
 import { InputTracker } from "./game/input";
@@ -15,12 +16,16 @@ import { Net } from "./game/net";
 import { Prediction } from "./game/prediction";
 import { Renderer } from "./game/renderer";
 import { SLOT_THEMES } from "./game/sprites";
+import { renderHelp } from "./help";
 import { renderLobby } from "./lobby";
 
 const appRoot = document.getElementById("app")!;
-const roomParam = new URLSearchParams(location.search).get("room");
+const params = new URLSearchParams(location.search);
+const roomParam = params.get("room");
 
-if (!roomParam) {
+if (params.has("help")) {
+  renderHelp(appRoot);
+} else if (!roomParam) {
   renderLobby(appRoot);
 } else {
   startGame(appRoot, roomParam);
@@ -37,7 +42,7 @@ function startGame(app: HTMLElement, roomId: string): void {
   <div id="rosterView" style="margin-bottom:8px;min-height:1.2em"></div>
   <div id="startHint" style="margin-bottom:8px;min-height:1.4em;color:#888;font-size:13px"></div>
   <canvas id="game" style="border:2px solid #444;max-width:100%;image-rendering:pixelated"></canvas>
-  <p style="color:#888">移動: 矢印キー / WASD ・ 爆弾: Space / Z ・ <a href="./" style="color:#6af">ロビーへ戻る</a>
+  <p style="color:#888">移動: 矢印キー / WASD ・ 爆弾: Space / Z ・ <a href="?help" style="color:#6af">遊び方</a> ・ <a href="./" style="color:#6af">ロビーへ戻る</a>
     <span id="debug" style="float:right;color:#555;font-size:11px"></span></p>
 `;
 
@@ -303,9 +308,16 @@ function frame(): void {
       : `rtt:${net.rttMs.toFixed(0)}ms`;
     // 自分のステータス表示
     const mine = snapBuffer.latest?.p.find((p) => p[0] === mySlot);
-    statsEl.textContent = mine
-      ? `🔥${mine[5]} 💣${mine[6]} 👟${Math.round((mine[7] - 32) / 8)}`
-      : "";
+    if (mine) {
+      const [, , , , flags, fire, bombCap, speed, skullTicks] = mine;
+      const parts = [`🔥${fire}`, `💣${bombCap}`, `👟${Math.round((speed - 32) / 8)}`];
+      if ((flags & 4) !== 0) parts.push("➡️貫通");
+      if (skullTicks > 0) parts.push(`💀${Math.ceil(skullTicks / TICK_RATE)}秒`);
+      statsEl.textContent = parts.join(" ");
+      statsEl.style.color = skullTicks > 0 ? "#e74c3c" : "";
+    } else {
+      statsEl.textContent = "";
+    }
   }
   requestAnimationFrame(frame);
 }

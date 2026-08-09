@@ -18,6 +18,7 @@ export function renderLobby(app: HTMLElement): void {
   const savedName = localStorage.getItem("bm-name") ?? "";
   app.innerHTML = `
     <h1 style="margin:8px 0">💣 BakudanOtoko</h1>
+    <p style="margin:0 0 16px"><a href="?help" style="color:#6af">📖 遊び方をみる</a></p>
     <div style="margin:16px 0">
       <label>プレイヤー名:
         <input id="nameInput" maxlength="12" value="${escapeHtml(savedName)}"
