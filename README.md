@@ -22,6 +22,7 @@ Cloudflare Workers + Durable Objects で動くリアルタイム対戦ゲーム�
   - 🔥 火力アップ / 💣 爆弾アップ / 👟 スピードアップ
   - ➡️ 貫通爆弾（希少）: 爆風がソフトブロックで止まらず火力ぶん突き抜ける
   - 💀 ドクロ（罠・希少）: 10 秒間だけ火力・爆弾数・速度が最低値に落ちる
+  - 👻 壁すり抜け（レア）: ブロックの中を通り抜けられる。1 回きりで、抜けきると効力が切れる
 - 最後まで生き残ったプレイヤーの勝ち（3分で引き分け）
 
 ## アーキテクチャ
@@ -47,23 +48,29 @@ src/shared/ … サーバー/クライアント共有の決定論ゲームロジ
 
 ## 開発
 
+Node と pnpm のバージョンは `mise.toml` で固定しています。[mise](https://mise.jdx.dev/) を入れていれば
+リポジトリに入るだけで揃います（未導入なら Node 24 / pnpm 11 を手動で用意してください）。
+
 ```bash
-npm install
-npm run dev        # vite build --watch + wrangler dev (http://localhost:8787)
-npm test           # vitest (shared ロジックの単体テスト 25件)
-npm run typecheck  # server / client 両方の型チェック
+mise install       # mise.toml のとおり Node / pnpm を用意
+pnpm install
+pnpm dev           # vite build --watch + wrangler dev (http://localhost:8787)
+pnpm test          # vitest (shared ロジックの単体テスト)
+pnpm typecheck     # server / client 両方の型チェック
 ```
+
+mise のタスクからも実行できます（`mise run dev` / `mise run check` など）。
 
 ローカルの Basic 認証は `.dev.vars`（`BASIC_USER` / `BASIC_PASS`、デフォルト admin / devpassword）。
 
 ## デプロイ (workers.dev)
 
 ```bash
-npx wrangler login              # 初回のみ（ブラウザ OAuth）
-npm run deploy                  # ビルド + デプロイ
-npx wrangler secret put BASIC_USER   # 認証ユーザー名を設定
-npx wrangler secret put BASIC_PASS   # 認証パスワードを設定
-npx wrangler tail               # 本番ログ確認
+pnpm wrangler login             # 初回のみ（ブラウザ OAuth）
+pnpm deploy                     # ビルド + デプロイ
+pnpm wrangler secret put BASIC_USER   # 認証ユーザー名を設定
+pnpm wrangler secret put BASIC_PASS   # 認証パスワードを設定
+pnpm wrangler tail               # 本番ログ確認
 ```
 
 無料枠の注意: Durable Objects はリクエスト 10万/日・duration 13,000 GB-s/日（毎日 00:00 UTC リセット）。

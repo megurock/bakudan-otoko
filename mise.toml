@@ -1,0 +1,23 @@
+[tools]
+node = "24.19.0"
+pnpm = "11.20.0"
+
+[env]
+# pnpm を使う前提。npm/yarn での操作を防ぐ
+_.path = ["./node_modules/.bin"]
+
+[tasks.dev]
+description = "クライアントの watch ビルドと Worker のローカル実行"
+run = "pnpm dev"
+
+[tasks.test]
+description = "共有ロジックの単体テスト"
+run = "pnpm test"
+
+[tasks.check]
+description = "型チェック + テスト（コミット前の確認用）"
+run = ["pnpm typecheck", "pnpm test"]
+
+[tasks.deploy]
+description = "ビルドして Cloudflare Workers へデプロイ"
+run = "pnpm deploy"
