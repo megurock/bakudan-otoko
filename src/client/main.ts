@@ -392,9 +392,11 @@ function frame(): void {
     // 自分のステータス表示
     const mine = snapBuffer.latest?.p.find((p) => p[0] === mySlot);
     if (mine) {
-      const [, , , , flags, fire, bombCap, speed, skullTicks] = mine;
+      const [, , , , flags, fire, bombCap, speed, skullTicks, wallPass] = mine;
       const parts = [`🔥${fire}`, `💣${bombCap}`, `👟${Math.round((speed - 32) / 8)}`];
       if ((flags & 4) !== 0) parts.push("➡️貫通");
+      const wp = wallPass ?? 0;
+      if (wp > 0) parts.push(wp > 1 ? `👻すり抜け×${wp}` : "👻すり抜け");
       if (skullTicks > 0) parts.push(`💀${Math.ceil(skullTicks / TICK_RATE)}秒`);
       statsEl.textContent = parts.join(" ");
       statsEl.style.color = skullTicks > 0 ? "#e74c3c" : "";
