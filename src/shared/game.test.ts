@@ -86,6 +86,8 @@ function stateHash(state: GameState): string {
       p.speed,
       p.pierce,
       p.skullTicks,
+      p.wallPass,
+      p.inSoftWall,
     ]),
     bombs: state.bombs.map((b) => [
       b.id,
@@ -174,7 +176,7 @@ describe("map", () => {
     expect(dropRate).toBeLessThan(0.36);
   });
 
-  it("5種類すべてのアイテムが出現し、Pierce と Skull は希少", () => {
+  it("6種類すべてのアイテムが出現し、Pierce と Skull は希少", () => {
     const counts = new Map<number, number>();
     for (let seed = 0; seed < 200; seed++) {
       const { hiddenItems } = createMap({ seed }, ALL_SLOTS);
@@ -184,13 +186,14 @@ describe("map", () => {
         counts.set(kind, (counts.get(kind) ?? 0) + 1);
       }
     }
-    // 5種すべてが出る
+    // 6種すべてが出る
     for (const kind of [
       Powerup.Fire,
       Powerup.Bomb,
       Powerup.Speed,
       Powerup.Pierce,
       Powerup.Skull,
+      Powerup.WallPass,
     ]) {
       expect(counts.get(kind) ?? 0).toBeGreaterThan(0);
     }
@@ -199,6 +202,27 @@ describe("map", () => {
     expect((counts.get(Powerup.Pierce) ?? 0) / total).toBeLessThan(0.1);
     expect((counts.get(Powerup.Skull) ?? 0) / total).toBeLessThan(0.1);
     expect((counts.get(Powerup.Fire) ?? 0) / total).toBeGreaterThan(0.25);
+  });
+
+  it("壁すり抜けは1マップにちょうど1〜2個だけ隠される", () => {
+    const seen = new Set<number>();
+    for (let seed = 0; seed < 100; seed++) {
+      const { grid, hiddenItems } = createMap({ seed }, ALL_SLOTS);
+      let count = 0;
+      for (let i = 0; i < hiddenItems.length; i++) {
+        if (hiddenItems[i] === Powerup.WallPass + 1) {
+          count++;
+          // 必ずソフトブロックの中にある
+          expect(grid[i]).toBe(Tile.Soft);
+        }
+      }
+      expect(count).toBeGreaterThanOrEqual(1);
+      expect(count).toBeLessThanOrEqual(2);
+      seen.add(count);
+    }
+    // 1個のマップも2個のマップも実際に出る
+    expect(seen.has(1)).toBe(true);
+    expect(seen.has(2)).toBe(true);
   });
 });
 
@@ -300,12 +324,12 @@ describe("bombs & blasts", () => {
     const bomb = state.bombs[0]!;
     expect(bomb.passableBy & 1).toBe(1); // slot0 は通過可
     expect(bomb.passableBy & 2).toBe(0); // slot1 は不可
-    expect(tilePassable(state, 3, 3, 0)).toBe(true);
-    expect(tilePassable(state, 3, 3, 1)).toBe(false);
+    expect(tilePassable(state, 3, 3, state.players[0]!)).toBe(true);
+    expect(tilePassable(state, 3, 3, state.players[1]!)).toBe(false);
     // slot0 が離れるとビットが落ち、戻っても通れない
     for (let i = 0; i < 12; i++) stepGame(state, inputs({ 0: Key.Right }));
     expect(bomb.passableBy & 1).toBe(0);
-    expect(tilePassable(state, 3, 3, 0)).toBe(false);
+    expect(tilePassable(state, 3, 3, state.players[0]!)).toBe(false);
   });
 
   it("爆風は range 分伝播し、Hard で遮蔽され、Soft は1枚破壊して停止する", () => {
@@ -652,6 +676,92 @@ describe("protocol", () => {
   });
 });
 
+// ===== 6.5 壁すり抜け =====
+
+describe("wall pass", () => {
+  it("チャージなしではソフトブロックに入れず、チャージがあれば入れる", () => {
+    const state = bareState();
+    state.grid[idx(4, 3)] = Tile.Soft;
+    placeAt(state, 0, 3, 3);
+    const p = state.players[0]!;
+    // チャージなし: 壁面で止まる
+    for (let i = 0; i < 10; i++) stepGame(state, inputs({ 0: Key.Right }));
+    expect(p.x).toBe(4 * SUB - PLAYER_HALF);
+    // チャージあり: 壁の中へ進める
+    p.wallPass = 1;
+    for (let i = 0; i < 4; i++) stepGame(state, inputs({ 0: Key.Right }));
+    expect(p.x).toBeGreaterThan(4 * SUB - PLAYER_HALF);
+  });
+
+  it("壁を通り抜けて外へ出た瞬間にチャージを1消費し、以後は入れない", () => {
+    const state = bareState();
+    state.grid[idx(4, 3)] = Tile.Soft;
+    placeAt(state, 0, 3, 3);
+    const p = state.players[0]!;
+    p.wallPass = 1;
+    // (3,3)中心 → (5,3)中心 = 512units = ちょうど16tick
+    for (let i = 0; i < 16; i++) stepGame(state, inputs({ 0: Key.Right }));
+    expect(Math.floor(p.x / SUB)).toBe(5);
+    expect(p.wallPass).toBe(0);
+    expect(tileAt(state.grid, 4, 3)).toBe(Tile.Soft); // 壁は壊れていない
+    // 戻ろうとしても入れない（壁面で停止）
+    for (let i = 0; i < 20; i++) stepGame(state, inputs({ 0: Key.Left }));
+    expect(p.x).toBe(5 * SUB + PLAYER_HALF);
+  });
+
+  it("連続したブロック帯は1回のすり抜けとして1チャージで通れる", () => {
+    const state = bareState();
+    state.grid[idx(4, 3)] = Tile.Soft;
+    state.grid[idx(5, 3)] = Tile.Soft;
+    state.grid[idx(6, 3)] = Tile.Soft;
+    placeAt(state, 0, 3, 3);
+    const p = state.players[0]!;
+    p.wallPass = 1;
+    // (3,3) → (7,3) = 4タイル = ちょうど32tick
+    for (let i = 0; i < 32; i++) stepGame(state, inputs({ 0: Key.Right }));
+    expect(Math.floor(p.x / SUB)).toBe(7);
+    expect(p.wallPass).toBe(0); // 3枚抜けても消費は1
+  });
+
+  it("スタック防止: 壁の中でチャージが尽きても必ず抜け出せる", () => {
+    const state = bareState();
+    state.grid[idx(4, 3)] = Tile.Soft;
+    placeAt(state, 0, 4, 3); // チャージ0のまま壁の中に置かれた状況
+    const p = state.players[0]!;
+    expect(p.wallPass).toBe(0);
+    // (4,3)中心 → (5,3)中心 = 256units = ちょうど8tick
+    for (let i = 0; i < 8; i++) stepGame(state, inputs({ 0: Key.Right }));
+    expect(Math.floor(p.x / SUB)).toBe(5); // 外へ出られた
+    // 完全に離れた後は再侵入できない
+    for (let i = 0; i < 20; i++) stepGame(state, inputs({ 0: Key.Left }));
+    expect(p.x).toBe(5 * SUB + PLAYER_HALF);
+  });
+
+  it("固い壁はチャージがあっても通れない", () => {
+    const state = bareState();
+    state.grid[idx(4, 3)] = Tile.Hard;
+    placeAt(state, 0, 3, 3);
+    const p = state.players[0]!;
+    p.wallPass = 9;
+    for (let i = 0; i < 10; i++) stepGame(state, inputs({ 0: Key.Right }));
+    expect(p.x).toBe(4 * SUB - PLAYER_HALF);
+    expect(p.wallPass).toBe(9);
+  });
+
+  it("アイテム取得でチャージが加算され、snap に含まれる", () => {
+    const state = bareState();
+    placeAt(state, 0, 3, 3);
+    const p = state.players[0]!;
+    state.items.push({ cx: 4, cy: 3, kind: Powerup.WallPass, revealTick: 0 });
+    state.items.push({ cx: 5, cy: 3, kind: Powerup.WallPass, revealTick: 0 });
+    for (let i = 0; i < 20; i++) stepGame(state, inputs({ 0: Key.Right }));
+    expect(p.wallPass).toBe(2);
+    const snap = buildSnap(state, [0, 0]);
+    const mine = snap.p.find((q) => q[0] === 0)!;
+    expect(mine[9]).toBe(2);
+  });
+});
+
 // ===== 7. 衝突ユーティリティ =====
 
 describe("collision utils", () => {
@@ -659,9 +769,10 @@ describe("collision utils", () => {
     const state = bareState();
     state.grid[idx(4, 4)] = Tile.Hard;
     const [x, y] = centerOf(3, 3);
-    expect(collides(state, x, y, 0)).toBe(false);
+    const p0 = state.players[0]!;
+    expect(collides(state, x, y, p0)).toBe(false);
     // (4,4) の方向へ半タイル弱ずらすと重なる
-    expect(collides(state, x + HALF_TILE + 40, y + HALF_TILE + 40, 0)).toBe(true);
+    expect(collides(state, x + HALF_TILE + 40, y + HALF_TILE + 40, p0)).toBe(true);
   });
 
   it("createPlayer はスポーン地点のタイル中心に配置する", () => {
