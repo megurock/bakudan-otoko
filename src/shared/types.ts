@@ -19,6 +19,8 @@ export const enum Powerup {
   Pierce = 3,
   /** ドクロ: 一定時間 fire/bombCap/speed が最低値に落ちるデバフ（罠） */
   Skull = 4,
+  /** 壁すり抜け: 1チャージにつき1回、ブロックの中を通り抜けられる（レア） */
+  WallPass = 5,
 }
 
 // 入力の 5bit ビットマスク
@@ -45,6 +47,8 @@ export interface Player {
   bombsActive: number;
   pierce: boolean; // 貫通爆弾を持っているか
   skullTicks: number; // ドクロデバフの残り tick（0=なし）
+  wallPass: number; // 壁すり抜けの残りチャージ（壁から抜け出た瞬間に1消費）
+  inSoftWall: boolean; // 中心タイルがソフトブロック内か（チャージ消費のエッジ検出用）
   keys: number; // 現在押下中ビットマスク
   prevKeys: number; // 爆弾ボタンのエッジ検出用
 }

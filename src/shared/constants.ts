@@ -39,6 +39,11 @@ export const SKULL_FIRE = 1;
 export const SKULL_BOMB_CAP = 1;
 export const SKULL_SPEED = 24; // BASE_SPEED(32) より遅い
 
+// 壁すり抜け（レア）: 1マップに確定でこの範囲の個数だけ隠す。
+// 通常のドロップ抽選とは別枠なので「1ゲームに1〜2回」が保証される
+export const WALLPASS_MIN_COUNT = 1;
+export const WALLPASS_MAX_COUNT = 2;
+
 // フェーズ時間
 // 全員 Ready から実際の開始までの猶予（ms）。
 // この間に Ready を外せば中止できる。入室待ちの相手がいるときの押し間違いを救う

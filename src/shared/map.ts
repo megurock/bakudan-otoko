@@ -4,6 +4,8 @@ import {
   MAP_W,
   SOFT_FILL_PCT,
   SPAWNS,
+  WALLPASS_MAX_COUNT,
+  WALLPASS_MIN_COUNT,
 } from "./constants";
 import { randBelow, type RngState } from "./rng";
 import { Powerup, Tile } from "./types";
@@ -85,6 +87,22 @@ export function createMap(rng: RngState, slots: readonly number[]): MapData {
         }
       }
     }
+  }
+
+  // 壁すり抜け（レア）: 通常の抽選とは別枠で、アイテムの入っていない
+  // ソフトブロックへ確定で 1〜2 個だけ隠す
+  const emptySofts: number[] = [];
+  for (let i = 0; i < grid.length; i++) {
+    if (grid[i] === Tile.Soft && hiddenItems[i] === 0) emptySofts.push(i);
+  }
+  const wallPassCount = Math.min(
+    emptySofts.length,
+    WALLPASS_MIN_COUNT + randBelow(rng, WALLPASS_MAX_COUNT - WALLPASS_MIN_COUNT + 1),
+  );
+  for (let n = 0; n < wallPassCount; n++) {
+    const j = randBelow(rng, emptySofts.length);
+    const cell = emptySofts.splice(j, 1)[0]!;
+    hiddenItems[cell] = Powerup.WallPass + 1;
   }
 
   return { grid, hiddenItems };

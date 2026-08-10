@@ -50,6 +50,8 @@ export function createPlayer(slot: number): Player {
     bombsActive: 0,
     pierce: false,
     skullTicks: 0,
+    wallPass: 0,
+    inSoftWall: false,
     keys: 0,
     prevKeys: 0,
   };
@@ -225,6 +227,9 @@ function pickupItem(state: GameState, p: Player): void {
         // 罠。取ると一定時間、能力が最低値に落ちる（貫通は失わない）
         p.skullTicks = SKULL_TICKS;
         break;
+      case Powerup.WallPass:
+        p.wallPass++;
+        break;
     }
     state.items.splice(i, 1);
     state.events.push(["pickup", p.slot, item.kind]);
@@ -272,6 +277,12 @@ export function stepGame(state: GameState, inputs: InputMap): void {
     p.keys = inputs[p.slot] ?? 0;
     tryPlaceBomb(state, p);
     movePlayer(state, p, p.keys);
+    // 壁すり抜けの消費: ブロック内に入り、抜け出た瞬間に1チャージ消費する
+    // （連続したブロック帯は1回のすり抜けとして扱う）
+    const inSoft =
+      tileAt(state.grid, centerTileX(p), centerTileY(p)) === Tile.Soft;
+    if (p.inSoftWall && !inSoft && p.wallPass > 0) p.wallPass--;
+    p.inSoftWall = inSoft;
     pickupItem(state, p);
   }
 

@@ -30,6 +30,7 @@ export type SnapPlayer = [
   bombCap: number,
   speed: number,
   skullTicks: number,
+  wallPass: number,
 ];
 export type SnapBomb = [
   id: number,
@@ -164,6 +165,7 @@ export function buildSnap(state: GameState, ackSeqs: number[]): Snap {
       p.bombCap,
       p.speed,
       p.skullTicks,
+      p.wallPass,
     ]),
     b: state.bombs.map((b) => [
       b.id,

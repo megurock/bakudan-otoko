@@ -15,16 +15,22 @@ export interface World {
   bombs: Bomb[];
 }
 
-/** タイル (cx,cy) が slot のプレイヤーにとって通行可能か（グリッド + 爆弾） */
+/** タイル (cx,cy) が p にとって通行可能か（グリッド + 爆弾 + 壁すり抜け） */
 export function tilePassable(
   state: World,
   cx: number,
   cy: number,
-  slot: number,
+  p: Player,
 ): boolean {
-  if (tileAt(state.grid, cx, cy) !== Tile.Floor) return false;
+  const t = tileAt(state.grid, cx, cy);
+  if (t === Tile.Soft) {
+    // 壁すり抜けチャージがあれば侵入可。チャージがなくても、いま自分が
+    // めり込んでいるブロックからは抜け出せる（スタック防止）
+    return p.wallPass > 0 || boxOverlapsTile(p, cx, cy);
+  }
+  if (t !== Tile.Floor) return false;
   for (const b of state.bombs) {
-    if (b.cx === cx && b.cy === cy) return (b.passableBy & (1 << slot)) !== 0;
+    if (b.cx === cx && b.cy === cy) return (b.passableBy & (1 << p.slot)) !== 0;
   }
   return true;
 }
@@ -34,7 +40,7 @@ export function collides(
   state: World,
   x: number,
   y: number,
-  slot: number,
+  p: Player,
 ): boolean {
   // ボックスは [x-HALF, x+HALF)。境界ちょうどは含まない
   const x0 = Math.floor((x - PLAYER_HALF) / SUB);
@@ -43,7 +49,7 @@ export function collides(
   const y1 = Math.floor((y + PLAYER_HALF - 1) / SUB);
   for (let cy = y0; cy <= y1; cy++) {
     for (let cx = x0; cx <= x1; cx++) {
-      if (!tilePassable(state, cx, cy, slot)) return true;
+      if (!tilePassable(state, cx, cy, p)) return true;
     }
   }
   return false;
@@ -78,7 +84,7 @@ function moveAxis(
   const tx = axis === 0 ? target : p.x;
   const ty = axis === 1 ? target : p.y;
 
-  if (!collides(state, tx, ty, p.slot)) {
+  if (!collides(state, tx, ty, p)) {
     if (axis === 0) p.x = target;
     else p.y = target;
     return;
@@ -97,7 +103,7 @@ function moveAxis(
   if ((sign > 0 && clamped > cur) || (sign < 0 && clamped < cur)) {
     const cx2 = axis === 0 ? clamped : p.x;
     const cy2 = axis === 1 ? clamped : p.y;
-    if (!collides(state, cx2, cy2, p.slot)) {
+    if (!collides(state, cx2, cy2, p)) {
       if (axis === 0) p.x = clamped;
       else p.y = clamped;
     }
@@ -111,7 +117,7 @@ function moveAxis(
   const cty = Math.floor(p.y / SUB);
   const nx = axis === 0 ? ctx + sign : ctx;
   const ny = axis === 1 ? cty + sign : cty;
-  if (!tilePassable(state, nx, ny, p.slot)) return;
+  if (!tilePassable(state, nx, ny, p)) return;
 
   const perp = axis === 0 ? p.y : p.x;
   const center = (axis === 0 ? cty : ctx) * SUB + HALF_TILE;
