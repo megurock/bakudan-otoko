@@ -27,7 +27,13 @@ import {
   type QueuedInput,
 } from "./input-queue";
 import { createMap, idx, tileAt } from "./map";
-import { centerTileX, collides, movePlayer, tilePassable } from "./movement";
+import {
+  centerTileX,
+  collides,
+  movePlayer,
+  tilePassable,
+  touchingSoftWall,
+} from "./movement";
 import { buildSnap, decodeC2S, decodeGrid, encode, encodeGrid } from "./protocol";
 import {
   createInitialState,
@@ -710,6 +716,86 @@ describe("wall pass", () => {
     p.wallPass = 1;
     for (let i = 0; i < 4; i++) stepGame(state, inputs({ 0: Key.Right }));
     expect(p.x).toBeGreaterThan(4 * SUB - PLAYER_HALF);
+  });
+
+  it("壁の中では上下左右すべてに動ける", () => {
+    const state = bareState();
+    // (4,3) を含む縦3マスをソフトブロックにする
+    state.grid[idx(4, 2)] = Tile.Soft;
+    state.grid[idx(4, 3)] = Tile.Soft;
+    state.grid[idx(4, 4)] = Tile.Soft;
+    placeAt(state, 0, 4, 3); // 壁の中央にいる状態
+    const p = state.players[0]!;
+    p.wallPass = 1;
+    const y0 = p.y;
+    // 壁の中で上へ動ける
+    for (let i = 0; i < 4; i++) stepGame(state, inputs({ 0: Key.Up }));
+    expect(p.y).toBeLessThan(y0);
+    // 壁の中で下へ動ける
+    for (let i = 0; i < 8; i++) stepGame(state, inputs({ 0: Key.Down }));
+    expect(p.y).toBeGreaterThan(y0);
+  });
+
+  it("壁から半歩出ただけでは効力が切れず、抜けきってから切れる", () => {
+    const state = bareState();
+    state.grid[idx(4, 3)] = Tile.Soft;
+    placeAt(state, 0, 3, 3);
+    const p = state.players[0]!;
+    p.wallPass = 1;
+    // 中心が壁を出た直後（体の左半分はまだ壁の中）
+    for (let i = 0; i < 12; i++) stepGame(state, inputs({ 0: Key.Right }));
+    expect(Math.floor(p.x / SUB)).toBe(5); // 中心はもう壁の外
+    expect(touchingSoftWall(state.grid, p)).toBe(true); // だが体は壁に残っている
+    expect(p.wallPass).toBe(1); // 半歩出ただけでは切れない
+    // 体ごと完全に抜けきると効力が切れる
+    for (let i = 0; i < 3; i++) stepGame(state, inputs({ 0: Key.Right }));
+    expect(touchingSoftWall(state.grid, p)).toBe(false);
+    expect(p.wallPass).toBe(0);
+  });
+
+  it("半歩出て戻る往復で壁の中に居座り続けられない", () => {
+    // 報告されたバグ: 中心タイルだけで効力切れを判定していたため、
+    // 半歩出た瞬間に効力が切れ、なお体が壁に残っているので戻れてしまい、
+    // 「半歩出て戻る」を繰り返して無限に壁の中に留まれた
+    const state = bareState();
+    state.grid[idx(4, 3)] = Tile.Soft;
+    placeAt(state, 0, 3, 3);
+    const p = state.players[0]!;
+    p.wallPass = 1;
+    // 壁へ入り、中心が (5,3) 側へ出るまで進む（体はまだ壁に触れている）
+    for (let i = 0; i < 12; i++) stepGame(state, inputs({ 0: Key.Right }));
+    expect(touchingSoftWall(state.grid, p)).toBe(true);
+    // 半歩出て戻るを繰り返す
+    for (let n = 0; n < 5; n++) {
+      for (let i = 0; i < 2; i++) stepGame(state, inputs({ 0: Key.Left }));
+      for (let i = 0; i < 2; i++) stepGame(state, inputs({ 0: Key.Right }));
+    }
+    // 効力はまだ1（抜けきっていないので消費されない）が、居座りは自由ではなく
+    // 抜けきれば必ず消費される
+    for (let i = 0; i < 6; i++) stepGame(state, inputs({ 0: Key.Right }));
+    expect(touchingSoftWall(state.grid, p)).toBe(false);
+    expect(p.wallPass).toBe(0);
+    // 抜けきった後は、体が触れる位置まで戻っても再侵入できない
+    for (let i = 0; i < 30; i++) stepGame(state, inputs({ 0: Key.Left }));
+    expect(p.x).toBe(5 * SUB + PLAYER_HALF);
+    expect(tileAt(state.grid, 4, 3)).toBe(Tile.Soft);
+  });
+
+  it("効力が切れたあとは、隣接する壁に体が触れていても再侵入できない", () => {
+    const state = bareState();
+    state.grid[idx(4, 3)] = Tile.Soft;
+    placeAt(state, 0, 3, 3);
+    const p = state.players[0]!;
+    p.wallPass = 1;
+    // 壁を抜けきる（(5,3) の中心へ）
+    for (let i = 0; i < 16; i++) stepGame(state, inputs({ 0: Key.Right }));
+    expect(p.wallPass).toBe(0);
+    // 左へ半歩戻り、体の左端が (4,3) に触れる位置まで来る
+    for (let i = 0; i < 2; i++) stepGame(state, inputs({ 0: Key.Left }));
+    // さらに左へ押し続けても壁の中へは戻れない（壁面で停止）
+    for (let i = 0; i < 20; i++) stepGame(state, inputs({ 0: Key.Left }));
+    expect(p.x).toBe(5 * SUB + PLAYER_HALF);
+    expect(Math.floor(p.x / SUB)).toBe(5);
   });
 
   it("壁を通り抜けて外へ出た瞬間にチャージを1消費し、以後は入れない", () => {
