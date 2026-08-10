@@ -1,0 +1,5 @@
+# workerd / esbuild はネイティブバイナリの取得に postinstall が必要なため、
+# ビルドスクリプトの実行を明示的に許可する
+allowBuilds:
+  esbuild: true
+  workerd: true

@@ -3,11 +3,12 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "packageManager": "pnpm@11.20.0",
   "scripts": {
     "predev": "vite build",
     "dev": "concurrently -k \"vite build --watch\" \"wrangler dev\"",
     "build": "vite build",
-    "deploy": "npm run build && wrangler deploy",
+    "deploy": "pnpm build && wrangler deploy",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.client.json --noEmit",
     "cf-typegen": "wrangler types"
@@ -19,10 +20,5 @@
     "vite": "^7.0.0",
     "vitest": "^3.2.0",
     "wrangler": "^4.27.0"
-  },
-  "allowScripts": {
-    "workerd@1.20260801.1": true,
-    "esbuild@0.28.1": true,
-    "sharp@0.35.2": true
   }
 }
