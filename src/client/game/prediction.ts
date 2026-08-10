@@ -130,7 +130,7 @@ export class Prediction {
     // 世界を最新化（爆弾は snap の値をそのまま採用）
     this.world.grid = grid;
     this.world.bombs = snap.b.map(
-      ([id, cx, cy, fuse, range, ownerSlot, pierce]): Bomb => ({
+      ([id, cx, cy, fuse, range, ownerSlot, pierce, passableBy]): Bomb => ({
         id,
         cx,
         cy,
@@ -138,12 +138,10 @@ export class Prediction {
         fuse,
         range,
         pierce: pierce === 1,
-        // 自分が上に乗っている爆弾の passableBy はサーバーが権威だが snap に含めない。
-        // 自マスの爆弾のみ通過可として近似（設置直後の予測用）
-        passableBy:
-          Math.floor(this.me.x / SUB) === cx && Math.floor(this.me.y / SUB) === cy
-            ? 1 << this.slot
-            : 0,
+        // すり抜け可否はサーバー権威の値をそのまま使う。中心タイル一致などで
+        // 近似すると、爆弾から半歩出た瞬間だけ予測側が「壁」と誤判定して
+        // 設置直後の 1〜2 歩がひっかかる
+        passableBy: passableBy ?? 0,
       }),
     );
     this.me.alive = (flags & 1) !== 0;

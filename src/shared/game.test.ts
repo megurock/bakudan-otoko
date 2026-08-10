@@ -27,7 +27,7 @@ import {
   type QueuedInput,
 } from "./input-queue";
 import { createMap, idx, tileAt } from "./map";
-import { collides, movePlayer, tilePassable } from "./movement";
+import { centerTileX, collides, movePlayer, tilePassable } from "./movement";
 import { buildSnap, decodeC2S, decodeGrid, encode, encodeGrid } from "./protocol";
 import {
   createInitialState,
@@ -673,6 +673,25 @@ describe("protocol", () => {
     const other = snap.p.find((q) => q[0] === 1)!;
     expect(other[4] & 4).toBe(0);
     expect(other[8]).toBe(0);
+  });
+
+  it("buildSnap が爆弾の passableBy を載せる（設置直後のひっかかり防止）", () => {
+    const state = bareState();
+    placeAt(state, 0, 3, 3);
+    stepGame(state, inputs({ 0: Key.Bomb }));
+
+    // 置いた本人のビットが立った状態でクライアントへ届く。
+    // これを近似（中心タイル一致など）で代用すると、爆弾マスから半歩出た
+    // 瞬間に予測側だけが「壁」と誤判定してひっかかる
+    expect(buildSnap(state, [0, 0]).b[0]![7]).toBe(1 << 0);
+
+    // 半歩だけ動いて中心タイルが隣に移っても、ヒットボックスが重なる限り
+    // 通過可のまま（サーバーとクライアントで同じ判定になる）
+    for (let i = 0; i < 5; i++) stepGame(state, inputs({ 0: Key.Right }));
+    const p = state.players[0]!;
+    expect(centerTileX(p)).toBe(4); // 中心タイルはもう爆弾のマスではない
+    expect(buildSnap(state, [0, 0]).b[0]![7]).toBe(1 << 0);
+    expect(tilePassable(state, 3, 3, p)).toBe(true);
   });
 });
 

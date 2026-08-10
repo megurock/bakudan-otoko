@@ -40,6 +40,9 @@ export type SnapBomb = [
   range: number,
   ownerSlot: number,
   pierce: 0 | 1,
+  // 設置直後にすり抜けられるプレイヤーのビットマスク。クライアント予測が
+  // サーバーと同じ判定を再現するために必要（近似するとひっかかりが出る）
+  passableBy: number,
 ];
 export type SnapBlast = [cx: number, cy: number, dir: number, shape: number];
 export type SnapItem = [cx: number, cy: number, kind: number];
@@ -175,6 +178,7 @@ export function buildSnap(state: GameState, ackSeqs: number[]): Snap {
       b.range,
       b.ownerSlot,
       b.pierce ? 1 : 0,
+      b.passableBy,
     ]),
     f: state.blasts.map((bl) => [bl.cx, bl.cy, bl.dir, bl.shape]),
     u: state.items
