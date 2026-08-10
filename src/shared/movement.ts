@@ -24,9 +24,11 @@ export function tilePassable(
 ): boolean {
   const t = tileAt(state.grid, cx, cy);
   if (t === Tile.Soft) {
-    // 壁すり抜けチャージがあれば侵入可。チャージがなくても、いま自分が
-    // めり込んでいるブロックからは抜け出せる（スタック防止）
-    return p.wallPass > 0 || boxOverlapsTile(p, cx, cy);
+    if (p.wallPass > 0) return true;
+    // チャージが尽きていても、いま体が食い込んでいるブロックからは抜け出せる
+    // （スタック防止）。p.inSoftWall が落ちた後は触れていても侵入不可になるので、
+    // 抜けきった後に半歩戻って再侵入することはできない
+    return p.inSoftWall && boxOverlapsTile(p, cx, cy);
   }
   if (t !== Tile.Floor) return false;
   for (const b of state.bombs) {
@@ -62,6 +64,24 @@ export function boxOverlapsTile(p: Player, cx: number, cy: number): boolean {
   const y0 = Math.floor((p.y - PLAYER_HALF) / SUB);
   const y1 = Math.floor((p.y + PLAYER_HALF - 1) / SUB);
   return cx >= x0 && cx <= x1 && cy >= y0 && cy <= y1;
+}
+
+/**
+ * 体の一部でもソフトブロックに触れているか。
+ * 「壁の中にいる」の判定は中心タイルではなくこれを使う。中心タイルだと
+ * 半身が壁に残ったまま「抜けた」と誤判定し、効力が早く切れてしまう。
+ */
+export function touchingSoftWall(grid: Uint8Array, p: Player): boolean {
+  const x0 = Math.floor((p.x - PLAYER_HALF) / SUB);
+  const x1 = Math.floor((p.x + PLAYER_HALF - 1) / SUB);
+  const y0 = Math.floor((p.y - PLAYER_HALF) / SUB);
+  const y1 = Math.floor((p.y + PLAYER_HALF - 1) / SUB);
+  for (let cy = y0; cy <= y1; cy++) {
+    for (let cx = x0; cx <= x1; cx++) {
+      if (tileAt(grid, cx, cy) === Tile.Soft) return true;
+    }
+  }
+  return false;
 }
 
 export function centerTileX(p: Player): number {

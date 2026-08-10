@@ -22,6 +22,7 @@ import {
   centerTileX,
   centerTileY,
   movePlayer,
+  touchingSoftWall,
 } from "./movement";
 import type { RngState } from "./rng";
 import {
@@ -277,10 +278,11 @@ export function stepGame(state: GameState, inputs: InputMap): void {
     p.keys = inputs[p.slot] ?? 0;
     tryPlaceBomb(state, p);
     movePlayer(state, p, p.keys);
-    // 壁すり抜けの消費: ブロック内に入り、抜け出た瞬間に1チャージ消費する
+    // 壁すり抜けの消費: ブロックに入り、完全に抜けきった時点で1チャージ消費する。
+    // 判定に体全体を使うのは、中心タイルだけで見ると半身が壁に残っていても
+    // 「抜けた」ことになり、効力が早く切れてしまうため
     // （連続したブロック帯は1回のすり抜けとして扱う）
-    const inSoft =
-      tileAt(state.grid, centerTileX(p), centerTileY(p)) === Tile.Soft;
+    const inSoft = touchingSoftWall(state.grid, p);
     if (p.inSoftWall && !inSoft && p.wallPass > 0) p.wallPass--;
     p.inSoftWall = inSoft;
     pickupItem(state, p);

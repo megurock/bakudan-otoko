@@ -1,5 +1,5 @@
 import { BASE_SPEED, HALF_TILE, SUB, TICK_MS } from "../../shared/constants";
-import { movePlayer, type World } from "../../shared/movement";
+import { movePlayer, touchingSoftWall, type World } from "../../shared/movement";
 import type { Snap } from "../../shared/protocol";
 import { Dir, type Bomb, type Player } from "../../shared/types";
 
@@ -109,6 +109,7 @@ export class Prediction {
       this.prevX = this.me.x;
       this.prevY = this.me.y;
       movePlayer(this.world, this.me, keys);
+      this.updateSoftWallState();
       this.history.push({ tick: this.predictedTick, keys, x: this.me.x, y: this.me.y });
       if (this.history.length > HISTORY_SIZE) this.history.shift();
       this.predictedTick++;
@@ -153,6 +154,7 @@ export class Prediction {
     // チャージ消費はサーバー権威（すり抜け完了の判定は stepGame 側でのみ行う）。
     // 予測は最新 snap の値で Soft の通行可否だけを再現する
     this.me.wallPass = wallPass;
+    this.me.inSoftWall = (flags & 8) !== 0;
     if (!this.me.alive) return;
 
     if (!this.started) {
@@ -181,6 +183,7 @@ export class Prediction {
     for (const e of this.history) {
       if (e.tick <= snap.k) continue;
       movePlayer(this.world, this.me, e.keys);
+      this.updateSoftWallState();
       e.x = this.me.x;
       e.y = this.me.y;
     }
@@ -197,6 +200,15 @@ export class Prediction {
       this.renderErrX = 0;
       this.renderErrY = 0;
     }
+  }
+
+  /**
+   * 壁の中にいるかを更新する。サーバーの stepGame と同じ規則にしないと、
+   * すり抜け中のスタック防止条件がズレて予測が揺れる。
+   * チャージの消費自体はサーバー権威なので、ここでは行わない。
+   */
+  private updateSoftWallState(): void {
+    this.me.inSoftWall = touchingSoftWall(this.world.grid, this.me);
   }
 
   /** 予測位置を強制的に置き、補間・オフセットを畳む */

@@ -25,7 +25,7 @@ export type SnapPlayer = [
   x: number,
   y: number,
   dir: number,
-  flags: number, // bit0=alive bit1=connected bit2=pierce
+  flags: number, // bit0=alive bit1=connected bit2=pierce bit3=inSoftWall
   fire: number,
   bombCap: number,
   speed: number,
@@ -163,7 +163,10 @@ export function buildSnap(state: GameState, ackSeqs: number[]): Snap {
       p.x,
       p.y,
       p.dir,
-      (p.alive ? 1 : 0) | (p.connected ? 2 : 0) | (p.pierce ? 4 : 0),
+      (p.alive ? 1 : 0) |
+        (p.connected ? 2 : 0) |
+        (p.pierce ? 4 : 0) |
+        (p.inSoftWall ? 8 : 0),
       p.fire,
       p.bombCap,
       p.speed,
