@@ -91,6 +91,44 @@ describe("wall pass scenario (実マップ)", () => {
     expect(tileAt(state.grid, 4, 3)).toBe(Tile.Soft); // 壁は壊れていない
   });
 
+  it("半透明が解ける瞬間と効力が切れる瞬間が一致する", () => {
+    // 半透明表示は snap の inSoftWall（= touchingSoftWall）で描くので、
+    // この2つが同じ tick で切り替わることを保証する。
+    // ズレると「透明が解けたのにまだ壁を通れる」状態が生まれる。
+    const state = realState(11);
+    state.grid.fill(Tile.Floor);
+    for (let cy = 0; cy < MAP_H; cy++) {
+      for (let cx = 0; cx < MAP_W; cx++) {
+        if (cx === 0 || cy === 0 || cx === MAP_W - 1 || cy === MAP_H - 1) {
+          state.grid[idx(cx, cy)] = Tile.Hard;
+        }
+      }
+    }
+    state.grid[idx(4, 3)] = Tile.Soft;
+
+    const p = state.players[0]!;
+    p.x = 3 * SUB + HALF_TILE;
+    p.y = 3 * SUB + HALF_TILE;
+    p.wallPass = 1;
+
+    let sawInside = false;
+    for (let i = 0; i < 24; i++) {
+      stepGame(state, inputs({ 0: Key.Right }));
+      const touching = touchingSoftWall(state.grid, p);
+      // 表示に使う inSoftWall と、実際の接触判定が常に一致している
+      expect(p.inSoftWall).toBe(touching);
+      if (touching) {
+        sawInside = true;
+        // 壁に触れている間は効力が残っている
+        expect(p.wallPass).toBe(1);
+      } else if (sawInside) {
+        // 触れなくなった＝半透明が解けた時点で、効力も失われている
+        expect(p.wallPass).toBe(0);
+      }
+    }
+    expect(sawInside).toBe(true);
+  });
+
   it("壁の中で効力が切れても、進行方向へ抜け出せる（閉じ込めなし）", () => {
     const state = realState(3);
     state.grid.fill(Tile.Floor);

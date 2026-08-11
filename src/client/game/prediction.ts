@@ -230,6 +230,11 @@ export class Prediction {
     return this.me.alive;
   }
 
+  /** 壁に食い込んでいる最中か。自キャラの半透明表示に使う */
+  get inSoftWall(): boolean {
+    return this.me.inSoftWall;
+  }
+
   /**
    * 描画用の位置（tick 間補間 + 減衰オフセット）。
    * 予測は 20Hz の固定ステップなので、そのまま描くと 60fps では 3 フレームに 1 回だけ

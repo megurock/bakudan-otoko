@@ -11,6 +11,8 @@ export interface InterpPlayer {
   alive: boolean;
   connected: boolean;
   pierce: boolean;
+  /** 壁すり抜けで壁に食い込んでいる最中か（サーバー権威。半透明表示に使う） */
+  inSoftWall: boolean;
   fire: number;
   bombCap: number;
   speed: number;
@@ -83,6 +85,7 @@ export class SnapBuffer {
         alive: (flags & 1) !== 0,
         connected: (flags & 2) !== 0,
         pierce: (flags & 4) !== 0,
+        inSoftWall: (flags & 8) !== 0,
         fire,
         bombCap,
         speed,

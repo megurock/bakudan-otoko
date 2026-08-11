@@ -283,12 +283,11 @@ export class Renderer {
       g.fill();
 
       const size = SPRITE_PX * PX_SCALE;
-      // 切断中は半透明。壁すり抜けでブロックの中にいる間はオバケ風に透ける
-      const tx = Math.floor(p.x / SUB);
-      const ty = Math.floor(p.y / SUB);
-      const inWall = view.grid?.[ty * MAP_W + tx] === Tile.Soft;
+      // 切断中は半透明。壁すり抜けでブロックに食い込んでいる間はオバケ風に透ける。
+      // 判定はサーバー権威の inSoftWall をそのまま使う（自前で中心タイルを見ると
+      // 効力の終了タイミングとズレて、透明が解けたのに壁を通れる状態が生じる）
       if (!p.connected) g.globalAlpha = 0.4;
-      else if (inWall) g.globalAlpha = 0.55;
+      else if (p.inSoftWall) g.globalAlpha = 0.55;
       g.drawImage(sprite, px - size / 2, py - size / 2 - 6, size, size);
       g.globalAlpha = 1;
 

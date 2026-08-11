@@ -368,6 +368,8 @@ function frame(): void {
       mine.x = prediction.renderX;
       mine.y = prediction.renderY;
       mine.dir = prediction.dir;
+      // 半透明も予測に合わせる。snap 由来のままだと自キャラだけ表示が遅れる
+      mine.inSoftWall = prediction.inSoftWall;
     }
   }
 
