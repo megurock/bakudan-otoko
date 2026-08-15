@@ -1,5 +1,8 @@
 // ロビー画面: ルーム一覧（ポーリング）・作成・参加
 
+import { SLOT_THEMES } from "./game/sprites";
+import { logoHtml } from "./logo";
+
 interface RoomInfo {
   id: string;
   name: string;
@@ -16,24 +19,40 @@ const API_ROOMS = `${location.origin}/api/rooms`;
 
 export function renderLobby(app: HTMLElement): void {
   const savedName = localStorage.getItem("bm-name") ?? "";
+  const slotChips = SLOT_THEMES.map(
+    (t) => `<span class="slot-chip" style="background:${t.primary}"></span>`,
+  ).join("");
   app.innerHTML = `
-    <h1 style="margin:8px 0">💣 BakudanOtoko</h1>
-    <p style="margin:0 0 16px"><a href="?help" style="color:#6af">📖 遊び方をみる</a></p>
-    <div style="margin:16px 0">
-      <label>プレイヤー名:
-        <input id="nameInput" maxlength="12" value="${escapeHtml(savedName)}"
-          placeholder="なまえ" style="padding:6px;font-family:inherit;width:10em" />
-      </label>
+    <div class="lobby">
+      <header class="lobby-hero">
+        ${logoHtml("ONLINE BOMB BATTLE")}
+        <p class="lobby-tag">最大6人でリアルタイム対戦。ルームを作って友だちを呼ぼう。
+          <a href="?help">あそびかたを見る</a></p>
+        <div class="lobby-slots" title="最大6人">${slotChips}</div>
+      </header>
+
+      <section class="lobby-panel">
+        <p class="lobby-panel-label">▶ エントリー</p>
+        <div class="lobby-row">
+          <label for="nameInput">プレイヤー名:</label>
+          <input id="nameInput" maxlength="12" value="${escapeHtml(savedName)}"
+            placeholder="なまえ" style="width:10em" />
+        </div>
+      </section>
+
+      <section class="lobby-panel">
+        <p class="lobby-panel-label">▶ ルームを作る</p>
+        <div class="lobby-row">
+          <input id="roomNameInput" maxlength="20" placeholder="ルーム名" style="flex:1;min-width:10em" />
+          <button id="createBtn" class="btn">作成して参加</button>
+        </div>
+      </section>
+
+      <h2>▶ ルーム一覧 <span id="pollState" style="color:#666;letter-spacing:normal"></span></h2>
+      <div id="roomList" style="min-height:4em">読み込み中…</div>
+
+      <p class="lobby-foot">PUSH CREATE TO START</p>
     </div>
-    <div style="margin:16px 0;padding:12px;border:1px solid #444;border-radius:8px">
-      <label>新しいルーム:
-        <input id="roomNameInput" maxlength="20" placeholder="ルーム名"
-          style="padding:6px;font-family:inherit;width:14em" />
-      </label>
-      <button id="createBtn" style="padding:6px 20px;margin-left:8px">作成して参加</button>
-    </div>
-    <h2 style="font-size:1.1em">ルーム一覧 <span id="pollState" style="color:#666;font-weight:normal"></span></h2>
-    <div id="roomList" style="min-height:4em">読み込み中…</div>
   `;
 
   const nameInput = document.getElementById("nameInput") as HTMLInputElement;
@@ -81,21 +100,24 @@ export function renderLobby(app: HTMLElement): void {
 
   function renderRooms(rooms: RoomInfo[]): void {
     if (rooms.length === 0) {
-      roomList.innerHTML = `<p style="color:#888">ルームがありません。作成してください。</p>`;
+      roomList.innerHTML = `<p class="room-empty">ルームはまだありません。最初のルームを作ってください。</p>`;
       return;
     }
     roomList.innerHTML = rooms
       .map((r) => {
         const full = r.players >= MAX_PLAYERS;
         const joinable = r.status === "waiting" && !full;
-        const stateLabel =
-          r.status === "playing" ? "対戦中" : full ? "満員" : `${r.players}/${MAX_PLAYERS}人`;
+        const badge =
+          r.status === "playing"
+            ? `<span class="room-badge playing">対戦中</span>`
+            : full
+              ? `<span class="room-badge full">満員</span>`
+              : `<span class="room-badge waiting">${r.players}/${MAX_PLAYERS}人</span>`;
         return `
-        <div style="display:flex;align-items:center;gap:12px;padding:8px;border-bottom:1px solid #333">
-          <span style="flex:1">${escapeHtml(r.name)} <span style="color:#666">(${r.id})</span></span>
-          <span style="color:${r.status === "playing" ? "#e67e22" : "#2ecc71"}">${stateLabel}</span>
-          <button data-room="${r.id}" ${joinable ? "" : "disabled"}
-            style="padding:4px 16px">参加</button>
+        <div class="room-card">
+          <span class="room-name">${escapeHtml(r.name)} <span class="room-id">(${r.id})</span></span>
+          ${badge}
+          <button data-room="${r.id}" class="btn btn-sm" ${joinable ? "" : "disabled"}>参加</button>
         </div>`;
       })
       .join("");

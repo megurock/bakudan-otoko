@@ -5,15 +5,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BakudanOtoko</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='9' r='6' fill='%23222'/%3E%3Crect x='7' y='1' width='2' height='3' fill='%23f80'/%3E%3C/svg%3E" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet" />
     <style>
       :root {
         color-scheme: dark;
+        /* ゲーム内スプライトと同じ色系統（sprites.ts の bombPal / itemFirePal 由来） */
+        --bg: #101024;
+        --panel: #1b1b36;
+        --line: #34345c;
+        --text: #e8e6f0;
+        --muted: #8a8ab0;
+        --fuse: #ff9f1a;
+        --fuse-shade: #a35f00;
+        --flame: #e8342a;
+        --spark: #ffe14d;
       }
       body {
         margin: 0;
-        background: #1a1a2e;
-        color: #eee;
-        font-family: "Courier New", monospace;
+        background-color: var(--bg);
+        /* ステージのタイル割りを思わせる薄い格子 */
+        background-image:
+          linear-gradient(rgba(122, 132, 220, 0.06) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(122, 132, 220, 0.06) 1px, transparent 1px);
+        background-size: 48px 48px;
+        color: var(--text);
+        font-family: "DotGothic16", "Courier New", monospace;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -24,6 +42,226 @@
         max-width: 900px;
         padding: 16px;
         box-sizing: border-box;
+      }
+      a {
+        color: #6af;
+      }
+      a:focus-visible,
+      button:focus-visible,
+      input:focus-visible {
+        outline: 2px solid var(--spark);
+        outline-offset: 2px;
+      }
+
+      /* ===== ロビー（タイトル画面） ===== */
+      .lobby {
+        max-width: 640px;
+        margin: 0 auto;
+      }
+      .lobby-hero {
+        text-align: center;
+        padding: 40px 0 8px;
+      }
+      .lobby-bomb-wrap {
+        display: inline-block;
+        padding: 12px;
+        /* 黒い爆弾が夜背景に沈まないよう、導火線の明かりで背後を照らす */
+        background: radial-gradient(closest-side, rgba(255, 159, 26, 0.3), transparent 72%);
+      }
+      .lobby-bomb {
+        display: block;
+        width: 104px;
+        height: 104px;
+        image-rendering: pixelated;
+        animation: bomb-pulse 1s steps(2, jump-none) infinite;
+      }
+      @keyframes bomb-pulse {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+      }
+      .lobby-bomb .spark-a {
+        animation: spark-flicker 0.5s steps(1, end) infinite;
+      }
+      .lobby-bomb .spark-b {
+        opacity: 0;
+        animation: spark-flicker 0.5s steps(1, end) infinite 0.25s;
+      }
+      @keyframes spark-flicker {
+        0%, 49.9% { opacity: 1; }
+        50%, 100% { opacity: 0; }
+      }
+      .lobby-eyebrow {
+        margin: 14px 0 0;
+        color: var(--fuse);
+        font-size: 13px;
+        letter-spacing: 0.4em;
+      }
+      .lobby-title {
+        margin: 4px 0 0;
+        font-size: clamp(48px, 13vw, 84px);
+        font-weight: normal;
+        letter-spacing: 0.08em;
+        color: #fff;
+        text-shadow:
+          3px 3px 0 var(--flame),
+          6px 6px 0 #571512;
+      }
+      /* 遊び方ページなど、控えめに使う場面のコンパクト版ロゴ */
+      .hero-compact {
+        padding: 24px 0 4px;
+        margin-bottom: 16px;
+      }
+      .hero-compact .lobby-bomb {
+        width: 72px;
+        height: 72px;
+      }
+      .hero-compact .lobby-title {
+        font-size: clamp(34px, 8vw, 52px);
+        text-shadow:
+          2px 2px 0 var(--flame),
+          4px 4px 0 #571512;
+      }
+      .lobby-tag {
+        margin: 14px 0 0;
+        color: var(--muted);
+        font-size: 15px;
+      }
+      .lobby-slots {
+        display: flex;
+        justify-content: center;
+        gap: 8px;
+        margin: 16px 0 4px;
+      }
+      .lobby-slots .slot-chip {
+        width: 14px;
+        height: 14px;
+        box-shadow: inset -3px -3px 0 rgba(0, 0, 0, 0.35);
+      }
+
+      .lobby-panel {
+        background: var(--panel);
+        border: 2px solid var(--line);
+        box-shadow: 0 4px 0 rgba(0, 0, 0, 0.4);
+        padding: 16px;
+        margin: 20px 0;
+      }
+      .lobby-panel-label {
+        margin: 0 0 10px;
+        color: var(--fuse);
+        font-size: 13px;
+        letter-spacing: 0.25em;
+      }
+      .lobby-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+      }
+      .lobby input {
+        background: #0d0d20;
+        border: 2px solid var(--line);
+        color: var(--text);
+        padding: 9px 10px;
+        font-family: inherit;
+        font-size: 15px;
+      }
+      .lobby input:focus {
+        border-color: var(--fuse);
+        outline: none;
+      }
+      .lobby input::placeholder {
+        color: #5c5c82;
+      }
+
+      .btn {
+        font-family: inherit;
+        font-size: 15px;
+        cursor: pointer;
+        border: 0;
+        color: #1a0d00;
+        background: var(--fuse);
+        padding: 10px 22px;
+        box-shadow: 0 4px 0 var(--fuse-shade);
+      }
+      .btn:hover:not(:disabled) {
+        background: #ffb54d;
+      }
+      .btn:active:not(:disabled) {
+        transform: translateY(3px);
+        box-shadow: 0 1px 0 var(--fuse-shade);
+      }
+      .btn:disabled {
+        background: #3a3a55;
+        color: #77779a;
+        box-shadow: 0 4px 0 #22223a;
+        cursor: default;
+      }
+      .btn-sm {
+        font-size: 14px;
+        padding: 7px 16px;
+      }
+
+      .lobby h2 {
+        margin: 28px 0 12px;
+        font-size: 15px;
+        font-weight: normal;
+        color: var(--fuse);
+        letter-spacing: 0.25em;
+        border-bottom: 2px solid var(--line);
+        padding-bottom: 8px;
+      }
+      .room-card {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: var(--panel);
+        border: 2px solid var(--line);
+        padding: 10px 14px;
+        margin-bottom: 10px;
+      }
+      .room-card .room-name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .room-card .room-id {
+        color: #5c5c82;
+        font-size: 13px;
+      }
+      .room-badge {
+        font-size: 12px;
+        padding: 3px 8px;
+        border: 1px solid currentColor;
+        white-space: nowrap;
+      }
+      .room-badge.waiting { color: #2ecc71; }
+      .room-badge.playing { color: #e67e22; }
+      .room-badge.full { color: var(--muted); }
+      .room-empty {
+        color: var(--muted);
+        text-align: center;
+        padding: 20px 0;
+        border: 2px dashed var(--line);
+      }
+      .lobby-foot {
+        text-align: center;
+        color: #5c5c82;
+        font-size: 12px;
+        margin: 32px 0 8px;
+        letter-spacing: 0.15em;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .lobby-bomb,
+        .lobby-bomb .spark-a,
+        .lobby-bomb .spark-b {
+          animation: none;
+        }
+        .lobby-bomb .spark-b {
+          opacity: 1;
+        }
       }
     </style>
   </head>

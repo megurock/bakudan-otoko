@@ -4,6 +4,7 @@
 import { SKULL_TICKS, TICK_RATE } from "../shared/constants";
 import { getSprites } from "./game/sprites";
 import { Powerup } from "../shared/types";
+import { logoHtml } from "./logo";
 
 interface ItemDoc {
   kind: Powerup;
@@ -57,8 +58,10 @@ function spriteImg(canvas: HTMLCanvasElement, scale: number): HTMLImageElement {
 
 export function renderHelp(app: HTMLElement): void {
   app.innerHTML = `
-    <h1 style="margin:8px 0">💣 BakudanOtoko — 遊び方</h1>
-    <p style="margin:0 0 20px"><a href="./" style="color:#6af">← ロビーへ戻る</a></p>
+    <header class="lobby-hero hero-compact">
+      ${logoHtml("HOW TO PLAY")}
+      <p style="margin:14px 0 0"><a href="./" style="color:#6af">← ロビーへ戻る</a></p>
+    </header>
 
     <section style="margin-bottom:24px">
       <h2 style="font-size:1.15em;border-bottom:1px solid #444;padding-bottom:4px">ルール</h2>
