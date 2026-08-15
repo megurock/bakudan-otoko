@@ -71,6 +71,8 @@ let grid: Uint8Array | null = null;
 let winnerSlot: number | null = null;
 let countdownEndTick = COUNTDOWN_TICKS;
 let ready = false;
+// 勝敗形式が変わって全員の Ready が解除されたことをヒントで知らせるフラグ
+let ruleChangeNote = false;
 let seq = 0;
 let prediction: Prediction | null = null;
 
@@ -189,13 +191,15 @@ function updateStartUi(): void {
       ? `Ready（${roster.length}人で開始）`
       : "Ready";
 
+  const note = ruleChangeNote ? "勝敗形式が変わったため、Ready をやり直してください。" : "";
   if (roster.length < 2) {
     startHintEl.textContent = "対戦にはあと1人以上必要です。誰かの参加を待っています…";
   } else if (notReady.length > 0) {
     const names = notReady.map((r) => r.name).join(", ");
     startHintEl.textContent =
+      note ||
       `全員が Ready を押すと開始します（未準備: ${names}）。` +
-      `まだ来ていない人がいるなら、揃うまで待ってください。`;
+        `まだ来ていない人がいるなら、揃うまで待ってください。`;
   } else {
     startHintEl.textContent = `${others.length + 1}人が準備完了です。`;
   }
@@ -238,15 +242,19 @@ function handleMessage(msg: S2C): void {
     case "joinRejected":
       statusEl.textContent = `参加できません: ${msg.reason}`;
       break;
-    case "roster":
+    case "roster": {
       roster = msg.roster;
       renderRoster();
       if (msg.phase === "waiting" && readyBtn.style.display === "none" && mySlot >= 0) {
         resetToWaitingUi();
       }
+      // 自分の Ready はサーバーが権威（勝敗形式の変更で一括解除されることがある）
+      const mine = roster.find((r) => r.slot === mySlot);
+      if (mine) ready = mine.ready;
       updateStartUi();
       renderSeries();
       break;
+    }
     case "startPending":
       startPendingUntil = performance.now() + START_GRACE_MS;
       startPendingPlayers = msg.players;
@@ -264,6 +272,7 @@ function handleMessage(msg: S2C): void {
       snapBuffer.clear();
       winnerSlot = null;
       countdownEndTick = msg.tick + msg.countdownTicks;
+      ruleChangeNote = false;
       audio.matchStart(msg.countdownTicks * TICK_MS);
       readyBtn.style.display = "none";
       clearStartPending();
@@ -292,13 +301,21 @@ function handleMessage(msg: S2C): void {
         if (msg.ph === "playing") prediction.syncClock(msg.k, net.rttMs);
       }
       break;
-    case "series":
+    case "series": {
+      const changed = msg.winTarget !== winTarget;
       winTarget = msg.winTarget;
       wins = msg.wins;
       round = msg.round;
       championSlot = msg.championSlot;
+      // 待機中の勝敗形式の変更は全員の Ready を解除する。その理由を案内する
+      if (changed && round === 0 && readyBtn.style.display !== "none") {
+        ruleChangeNote = true;
+        clearStartPending();
+      }
       renderSeries();
+      updateStartUi();
       break;
+    }
     case "gameover":
       audio.setBgm(null);
       if (msg.winnerSlot >= 0) audio.playSe("win");
@@ -373,6 +390,7 @@ function resetToWaitingUi(): void {
 
 readyBtn.addEventListener("click", () => {
   ready = !ready;
+  if (ready) ruleChangeNote = false;
   net.send({ t: "ready", ready });
   // 取り消しの体感を早くするため、サーバーの startCancelled を待たずに畳む
   if (!ready) clearStartPending();

@@ -179,10 +179,15 @@ export class RoomDO {
         if (this.game || this.round > 0) return;
         const v = msg.winTarget;
         if (!WIN_TARGET_OPTIONS.includes(v as (typeof WIN_TARGET_OPTIONS)[number])) return;
+        if (v === this.winTarget) return; // 同じ値なら Ready を巻き込まない
         this.winTarget = v;
-        // 猶予中に条件が変わると紛らわしいので取り消す
+        // ルール変更は合意のやり直し: 全員の Ready を解除し、開始猶予も取り消す。
+        // Ready は「今のルールで始めてよい」という合意なので、ルールが変われば
+        // 全員が新しいルールを見て押し直すまで開始しない
+        for (const e of this.roster.values()) e.ready = false;
         this.cancelStartGrace();
         await this.ctx.storage.put("winTarget", v);
+        await this.persistRoster();
         this.broadcastSeries(null);
         this.broadcastRoster();
         return;
