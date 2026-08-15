@@ -8,10 +8,13 @@ import {
   SPAWNS,
   START_GRACE_MS,
   SUB,
+  TICK_MS,
   TICK_RATE,
   WIN_TARGET_OPTIONS,
 } from "../shared/constants";
 import { decodeGrid, type RosterEntry, type S2C } from "../shared/protocol";
+import { Powerup, type GameEvent } from "../shared/types";
+import { AudioEngine, type SeName } from "./game/audio";
 import { InputTracker } from "./game/input";
 import { SnapBuffer } from "./game/interpolation";
 import { Net } from "./game/net";
@@ -40,6 +43,7 @@ function startGame(app: HTMLElement, roomId: string): void {
     <span id="status">connecting...</span>
     <button id="readyBtn" style="display:none;margin-left:12px;padding:4px 16px">Ready</button>
     <span id="stats" style="margin-left:16px"></span>
+    <button id="muteBtn" style="float:right;padding:4px 10px;background:#2a2a3e;color:#aaa;border:1px solid #444;border-radius:4px;cursor:pointer"></button>
   </div>
   <div id="rosterView" style="margin-bottom:8px;min-height:1.2em"></div>
   <div id="seriesView" style="margin-bottom:8px;min-height:1.2em;font-size:13px"></div>
@@ -72,6 +76,18 @@ let prediction: Prediction | null = null;
 
 const renderer = new Renderer(canvas);
 const snapBuffer = new SnapBuffer();
+const audio = new AudioEngine();
+
+const muteBtn = document.getElementById("muteBtn") as HTMLButtonElement;
+function renderMute(): void {
+  muteBtn.textContent = audio.muted ? "🔇" : "🔊";
+  muteBtn.title = audio.muted ? "サウンドをオンにする" : "ミュート";
+}
+muteBtn.addEventListener("click", () => {
+  audio.toggleMute();
+  renderMute();
+});
+renderMute();
 const debugEl = document.getElementById("debug")!;
 const statsEl = document.getElementById("stats")!;
 const startHintEl = document.getElementById("startHint")!;
@@ -195,6 +211,7 @@ const net = new Net(roomId, {
   onClose() {
     statusEl.textContent = "disconnected（リロードで再接続）";
     readyBtn.style.display = "none";
+    audio.setBgm(null);
   },
   onMessage(msg: S2C) {
     handleMessage(msg);
@@ -213,6 +230,7 @@ function handleMessage(msg: S2C): void {
       wins = msg.wins;
       round = msg.round;
       if (msg.phase === "waiting") showWaitingUi();
+      else audio.setBgm("battle"); // 対戦中のルームへの再入室
       renderRoster();
       updateStartUi();
       renderSeries();
@@ -246,6 +264,7 @@ function handleMessage(msg: S2C): void {
       snapBuffer.clear();
       winnerSlot = null;
       countdownEndTick = msg.tick + msg.countdownTicks;
+      audio.matchStart(msg.countdownTicks * TICK_MS);
       readyBtn.style.display = "none";
       clearStartPending();
       startHintEl.textContent = "";
@@ -265,6 +284,7 @@ function handleMessage(msg: S2C): void {
       if (msg.g && grid) {
         for (const [cx, cy, tile] of msg.g) grid[cy * MAP_W + cx] = tile;
       }
+      if (msg.e) playSnapSounds(msg.e);
       renderer.ingest(msg);
       snapBuffer.push(msg);
       if (prediction && grid) {
@@ -280,6 +300,8 @@ function handleMessage(msg: S2C): void {
       renderSeries();
       break;
     case "gameover":
+      audio.setBgm(null);
+      if (msg.winnerSlot >= 0) audio.playSe("win");
       winnerSlot = msg.winnerSlot;
       wins = msg.wins;
       winTarget = msg.winTarget;
@@ -301,7 +323,37 @@ function handleMessage(msg: S2C): void {
   }
 }
 
+/** snap の演出イベントを SE に変換する（同 tick の同種イベントは1回だけ鳴らす） */
+function playSnapSounds(events: GameEvent[]): void {
+  const played = new Set<SeName>();
+  for (const ev of events) {
+    let se: SeName | null = null;
+    switch (ev[0]) {
+      case "place":
+        se = "place";
+        break;
+      case "boom":
+        se = "boom";
+        break;
+      case "punch":
+        se = "punch";
+        break;
+      case "die":
+        se = "die";
+        break;
+      case "pickup":
+        se = ev[2] === Powerup.Skull ? "skull" : "pickup";
+        break;
+    }
+    if (se !== null && !played.has(se)) {
+      played.add(se);
+      audio.playSe(se);
+    }
+  }
+}
+
 function showWaitingUi(): void {
+  audio.setBgm("waiting");
   readyBtn.style.display = "";
   ready = false;
   clearStartPending();
