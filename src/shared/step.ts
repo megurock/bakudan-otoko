@@ -6,7 +6,11 @@ import {
   FIRE_MAX,
   FUSE_TICKS,
   HALF_TILE,
+  MAP_H,
+  MAP_W,
   MATCH_MAX_TICKS,
+  PUNCH_DISTANCE,
+  PUNCH_FLY_TICKS_PER_TILE,
   SKULL_BOMB_CAP,
   SKULL_FIRE,
   SKULL_SPEED,
@@ -50,6 +54,7 @@ export function createPlayer(slot: number): Player {
     bombCap: 1,
     bombsActive: 0,
     pierce: false,
+    punch: false,
     skullTicks: 0,
     wallPass: 0,
     inSoftWall: false,
@@ -80,8 +85,27 @@ export function createInitialState(seed: number, slots: number[]): GameState {
   };
 }
 
+// Dir → タイル差分（Dir enum の値がそのままインデックス）
+const DIR_DELTA: ReadonlyArray<readonly [number, number]> = [
+  [0, -1], // Up
+  [0, 1], // Down
+  [-1, 0], // Left
+  [1, 0], // Right
+];
+
+// 飛翔中の爆弾も cx/cy に着地予定タイルを持つ（着地マスの予約）。
+// 設置の重複判定には findBombAt を、当たり判定・誘爆・パンチ対象には
+// 接地爆弾だけを見る findGroundedBombAt を使う
 function findBombAt(state: GameState, cx: number, cy: number): Bomb | undefined {
   return state.bombs.find((b) => b.cx === cx && b.cy === cy);
+}
+
+function findGroundedBombAt(
+  state: GameState,
+  cx: number,
+  cy: number,
+): Bomb | undefined {
+  return state.bombs.find((b) => b.flyTicks === 0 && b.cx === cx && b.cy === cy);
 }
 
 function addBlast(
@@ -110,13 +134,8 @@ function resolveExplosions(state: GameState, queue: Bomb[]): void {
     state.events.push(["boom", bomb.cx, bomb.cy]);
     addBlast(state, bomb.cx, bomb.cy, Dir.Up, 0);
 
-    const dirs: Array<[Dir, number, number]> = [
-      [Dir.Up, 0, -1],
-      [Dir.Down, 0, 1],
-      [Dir.Left, -1, 0],
-      [Dir.Right, 1, 0],
-    ];
-    for (const [dir, dx, dy] of dirs) {
+    for (const dir of [Dir.Up, Dir.Down, Dir.Left, Dir.Right]) {
+      const [dx, dy] = DIR_DELTA[dir]!;
       for (let step = 1; step <= bomb.range; step++) {
         const cx = bomb.cx + dx * step;
         const cy = bomb.cy + dy * step;
@@ -143,8 +162,8 @@ function resolveExplosions(state: GameState, queue: Bomb[]): void {
           addBlast(state, cx, cy, dir, 2);
           break;
         }
-        // Floor: 未起爆爆弾があれば誘爆して遮蔽
-        const other = findBombAt(state, cx, cy);
+        // Floor: 未起爆爆弾があれば誘爆して遮蔽（飛翔中は対象外、爆風は素通り）
+        const other = findGroundedBombAt(state, cx, cy);
         if (other && !exploded.has(other.id)) {
           queue.push(other);
           addBlast(state, cx, cy, dir, 2);
@@ -189,9 +208,48 @@ function tryPlaceBomb(state: GameState, p: Player): void {
     range: effectiveFire(p), // 設置時点の能力をコピー（後からの強化は既設爆弾に影響しない）
     pierce: p.pierce,
     passableBy,
+    flyTicks: 0,
+    flyFromCx: cx,
+    flyFromCy: cy,
   });
   p.bombsActive++;
   state.events.push(["place", p.slot]);
+}
+
+/**
+ * ボムパンチ: 向いている方向の隣接タイルにある接地爆弾を、同方向へ
+ * PUNCH_DISTANCE マス飛ばす（足元の爆弾は対象外）。着地点は発動時に確定し、
+ * 3マス先が塞がっていれば 1 マスずつ延長して最初の空きマスへ。
+ * マップ外まで空きがなければ不成立（爆弾は動かない）。
+ */
+function tryPunch(state: GameState, p: Player): void {
+  if (!p.punch) return;
+  const pressed = (p.keys & Key.Punch) !== 0 && (p.prevKeys & Key.Punch) === 0;
+  if (!pressed) return;
+
+  const [dx, dy] = DIR_DELTA[p.dir]!;
+  const bx = centerTileX(p) + dx;
+  const by = centerTileY(p) + dy;
+  const bomb = findGroundedBombAt(state, bx, by);
+  if (!bomb) return;
+
+  // 空きマス = Floor かつ爆弾なし（飛翔中爆弾の着地予約も含めて避ける）
+  let dist = PUNCH_DISTANCE;
+  for (;;) {
+    const tx = bx + dx * dist;
+    const ty = by + dy * dist;
+    if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) return; // マップ外 = 不成立
+    if (tileAt(state.grid, tx, ty) === Tile.Floor && !findBombAt(state, tx, ty)) break;
+    dist++;
+  }
+
+  bomb.flyFromCx = bomb.cx;
+  bomb.flyFromCy = bomb.cy;
+  bomb.cx = bx + dx * dist;
+  bomb.cy = by + dy * dist;
+  bomb.flyTicks = dist * PUNCH_FLY_TICKS_PER_TILE;
+  bomb.passableBy = 0; // 飛翔中は判定対象外。着地時に重なりで再セットする
+  state.events.push(["punch", p.slot]);
 }
 
 // ドクロ中の実効能力。素の値は保持しておき、デバフが切れたら元に戻る
@@ -231,6 +289,9 @@ function pickupItem(state: GameState, p: Player): void {
       case Powerup.WallPass:
         p.wallPass++;
         break;
+      case Powerup.Punch:
+        p.punch = true;
+        break;
     }
     state.items.splice(i, 1);
     state.events.push(["pickup", p.slot, item.kind]);
@@ -260,10 +321,28 @@ export function stepGame(state: GameState, inputs: InputMap): void {
     if (bl.ticks <= 0) state.blasts.splice(i, 1);
   }
 
-  // 2. 導火線
+  // 2. 導火線と飛翔の進行。飛翔中も導火線は進むが、爆発は着地まで遅延する。
+  //    着地をここ（プレイヤー処理より前）で行うことで、着地時の即時爆発が
+  //    同 tick のステップ3（誘爆 BFS）にそのまま乗る
   const explodeQueue: Bomb[] = [];
   for (const b of state.bombs) {
     b.fuse--;
+    if (b.flyTicks > 0) {
+      b.flyTicks--;
+      if (b.flyTicks === 0) {
+        // 着地: このマスへ重なっているプレイヤーは通過可能（設置時と同じ規則）
+        let mask = 0;
+        for (const q of state.players) {
+          if (q.alive && boxOverlapsTile(q, b.cx, b.cy)) mask |= 1 << q.slot;
+        }
+        b.passableBy = mask;
+        // 導火線切れ、または着地マスに爆風が残っていれば即爆発
+        if (b.fuse <= 0 || state.blasts.some((bl) => bl.cx === b.cx && bl.cy === b.cy)) {
+          explodeQueue.push(b);
+        }
+      }
+      continue;
+    }
     if (b.fuse <= 0) explodeQueue.push(b);
   }
 
@@ -277,6 +356,7 @@ export function stepGame(state: GameState, inputs: InputMap): void {
     p.prevKeys = p.keys;
     p.keys = inputs[p.slot] ?? 0;
     tryPlaceBomb(state, p);
+    tryPunch(state, p);
     movePlayer(state, p, p.keys);
     // 壁すり抜けの消費: ブロックに入り、完全に抜けきった時点で1チャージ消費する。
     // 判定に体全体を使うのは、中心タイルだけで見ると半身が壁に残っていても

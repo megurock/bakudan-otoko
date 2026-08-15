@@ -270,6 +270,26 @@ const ITEM_WALLPASS = [
   "................",
 ];
 
+// パンチグローブ（レア）: 右向きのボクシンググローブ。手首に白いカフ
+const ITEM_PUNCH = [
+  "................",
+  "................",
+  ".....ddddd......",
+  "....dgggggd.....",
+  "...dgggggggd....",
+  "..wdggggggggd...",
+  "..wgggggggggd...",
+  "..wgggggggggd...",
+  "..wdggggggggd...",
+  "...dggdggggd....",
+  "....ddgggggd....",
+  "......dggggd....",
+  ".......dddd.....",
+  "................",
+  "................",
+  "................",
+];
+
 // ドクロ（罠アイテム）: 大きな眼窩と歯で「危険」と分かる形に
 const ITEM_SKULL = [
   "................",
@@ -420,6 +440,8 @@ export function getSprites(): SpriteSheet {
   const itemPiercePal: Palette = { p: "#e8342a", b: "#7a4a1e" };
   const itemSkullPal: Palette = { w: "#f0f0f0", k: "#1a1a1a" };
   const itemWallPassPal: Palette = { g: "#9b7fe8", k: "#2a1a4a" };
+  // プレイヤースプライトの手袋色（GLOVE）と揃えて「手」を連想させる
+  const itemPunchPal: Palette = { g: GLOVE, d: "#7a1f33", w: "#f0f0f0" };
   const floorPal: Palette = { g: "#3a9e3a", G: "#349234" };
   const hardPal: Palette = { h: "#8a8a96", L: "#b4b4c0", d: "#5c5c66" };
   const softPal: Palette = { b: "#c47a3d", B: "#b5651d", o: "#8a4a12", d: "#6e3a0e" };
@@ -451,6 +473,7 @@ export function getSprites(): SpriteSheet {
       itemBg(bake(ITEM_PIERCE, itemPiercePal)),
       itemBg(bake(ITEM_SKULL, itemSkullPal)),
       itemBg(bake(ITEM_WALLPASS, itemWallPassPal)),
+      itemBg(bake(ITEM_PUNCH, itemPunchPal)),
     ],
     floor: bake(TILE_FLOOR_A, floorPal),
     hard: bake(TILE_HARD, hardPal),

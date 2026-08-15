@@ -57,6 +57,7 @@ export class Prediction {
       bombCap: 1,
       bombsActive: 0,
       pierce: false,
+      punch: false,
       skullTicks: 0,
       wallPass: 0,
       inSoftWall: false,
@@ -131,7 +132,7 @@ export class Prediction {
     // 世界を最新化（爆弾は snap の値をそのまま採用）
     this.world.grid = grid;
     this.world.bombs = snap.b.map(
-      ([id, cx, cy, fuse, range, ownerSlot, pierce, passableBy]): Bomb => ({
+      ([id, cx, cy, fuse, range, ownerSlot, pierce, passableBy, flyTicks, flyFromCx, flyFromCy]): Bomb => ({
         id,
         cx,
         cy,
@@ -143,10 +144,16 @@ export class Prediction {
         // 近似すると、爆弾から半歩出た瞬間だけ予測側が「壁」と誤判定して
         // 設置直後の 1〜2 歩がひっかかる
         passableBy: passableBy ?? 0,
+        // 飛翔状態もサーバー値を使う。落とすと着地マス付近で
+        // 予測だけが「壁」と誤判定して reconciliation が多発する
+        flyTicks: flyTicks ?? 0,
+        flyFromCx: flyFromCx ?? cx,
+        flyFromCy: flyFromCy ?? cy,
       }),
     );
     this.me.alive = (flags & 1) !== 0;
     this.me.pierce = (flags & 4) !== 0;
+    this.me.punch = (flags & 16) !== 0;
     this.me.fire = fire;
     this.me.bombCap = bombCap;
     this.me.speed = speed;

@@ -2,6 +2,8 @@ import {
   DROP_PCT,
   MAP_H,
   MAP_W,
+  PUNCH_MAX_COUNT,
+  PUNCH_MIN_COUNT,
   SOFT_FILL_PCT,
   SPAWNS,
   WALLPASS_MAX_COUNT,
@@ -103,6 +105,17 @@ export function createMap(rng: RngState, slots: readonly number[]): MapData {
     const j = randBelow(rng, emptySofts.length);
     const cell = emptySofts.splice(j, 1)[0]!;
     hiddenItems[cell] = Powerup.WallPass + 1;
+  }
+
+  // パンチグローブ（レア）: 壁すり抜けと同じく別枠で確定 1〜2 個
+  const punchCount = Math.min(
+    emptySofts.length,
+    PUNCH_MIN_COUNT + randBelow(rng, PUNCH_MAX_COUNT - PUNCH_MIN_COUNT + 1),
+  );
+  for (let n = 0; n < punchCount; n++) {
+    const j = randBelow(rng, emptySofts.length);
+    const cell = emptySofts.splice(j, 1)[0]!;
+    hiddenItems[cell] = Powerup.Punch + 1;
   }
 
   return { grid, hiddenItems };

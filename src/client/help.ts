@@ -1,7 +1,7 @@
 // 遊び方画面。実際のゲームで使うスプライトをそのまま並べるので、
 // 説明の見た目と本編の見た目が必ず一致する。
 
-import { SKULL_TICKS, TICK_RATE } from "../shared/constants";
+import { PUNCH_DISTANCE, SKULL_TICKS, TICK_RATE } from "../shared/constants";
 import { getSprites } from "./game/sprites";
 import { Powerup } from "../shared/types";
 import { logoHtml } from "./logo";
@@ -42,6 +42,14 @@ const ITEM_DOCS: ItemDoc[] = [
     kind: Powerup.WallPass,
     name: "壁すり抜け（レア）",
     desc: "ブロックの中を通り抜けられる。ただし1回きり — 壁を抜けきったところで効力が切れる。固い壁は通れない。",
+  },
+  {
+    kind: Powerup.Punch,
+    name: "パンチグローブ（レア）",
+    desc:
+      `目の前の爆弾を X / E で向いている方向へ${PUNCH_DISTANCE}マス飛ばせる。` +
+      "壁も爆弾も相手も飛び越え、着地先が塞がっていればさらに先の空きマスまで飛ぶ。" +
+      "他人の爆弾もパンチできる。一度取れば効果はずっと続く。",
   },
 ];
 
@@ -84,6 +92,10 @@ export function renderHelp(app: HTMLElement): void {
         <tr>
           <td style="padding-right:24px;color:#aaa">爆弾を置く</td>
           <td><kbd>Space</kbd> または <kbd>Z</kbd></td>
+        </tr>
+        <tr>
+          <td style="padding-right:24px;color:#aaa">ボムパンチ</td>
+          <td><kbd>X</kbd> または <kbd>E</kbd>（パンチグローブ所持中のみ）</td>
         </tr>
       </table>
       <p style="color:#888;margin-top:12px;line-height:1.7">

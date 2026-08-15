@@ -44,6 +44,13 @@ export const SKULL_SPEED = 24; // BASE_SPEED(32) より遅い
 export const WALLPASS_MIN_COUNT = 1;
 export const WALLPASS_MAX_COUNT = 2;
 
+// ボムパンチ（パンチグローブ）: 隣接する爆弾を向いている方向へ飛ばす
+export const PUNCH_DISTANCE = 3; // 基本の飛距離（マス）
+export const PUNCH_FLY_TICKS_PER_TILE = 2; // 1マスあたりの飛翔 tick（3マス = 300ms）
+// WallPass と同じく通常ドロップとは別枠の確定出現
+export const PUNCH_MIN_COUNT = 1;
+export const PUNCH_MAX_COUNT = 2;
+
 // フェーズ時間
 // 全員 Ready から実際の開始までの猶予（ms）。
 // この間に Ready を外せば中止できる。入室待ちの相手がいるときの押し間違いを救う

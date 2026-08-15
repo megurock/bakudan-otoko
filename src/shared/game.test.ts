@@ -10,6 +10,8 @@ import {
   MAP_W,
   MATCH_MAX_TICKS,
   PLAYER_HALF,
+  PUNCH_DISTANCE,
+  PUNCH_FLY_TICKS_PER_TILE,
   SKULL_BOMB_CAP,
   SKULL_FIRE,
   SKULL_SPEED,
@@ -43,7 +45,7 @@ import {
   effectiveSpeed,
   stepGame,
 } from "./step";
-import { Dir, Key, Powerup, Tile, type GameState } from "./types";
+import { Dir, Key, Powerup, Tile, type Bomb, type GameState } from "./types";
 
 // ===== テストヘルパー =====
 
@@ -78,6 +80,31 @@ function inputs(map: Record<number, number>): number[] {
   return arr;
 }
 
+/** 接地爆弾を直接追加する（設置操作を経由しないテスト用） */
+function addBomb(
+  state: GameState,
+  cx: number,
+  cy: number,
+  ownerSlot = 0,
+  fuse = FUSE_TICKS,
+): Bomb {
+  const bomb: Bomb = {
+    id: state.nextId++,
+    cx,
+    cy,
+    ownerSlot,
+    fuse,
+    range: 2,
+    pierce: false,
+    passableBy: 0,
+    flyTicks: 0,
+    flyFromCx: cx,
+    flyFromCy: cy,
+  };
+  state.bombs.push(bomb);
+  return bomb;
+}
+
 function stateHash(state: GameState): string {
   return JSON.stringify({
     tick: state.tick,
@@ -91,6 +118,7 @@ function stateHash(state: GameState): string {
       p.bombCap,
       p.speed,
       p.pierce,
+      p.punch,
       p.skullTicks,
       p.wallPass,
       p.inSoftWall,
@@ -103,6 +131,9 @@ function stateHash(state: GameState): string {
       b.range,
       b.passableBy,
       b.pierce,
+      b.flyTicks,
+      b.flyFromCx,
+      b.flyFromCy,
     ]),
     blasts: state.blasts.map((b) => [b.cx, b.cy, b.ticks]),
     items: state.items.map((i) => [i.cx, i.cy, i.kind, i.revealTick]),
@@ -182,7 +213,7 @@ describe("map", () => {
     expect(dropRate).toBeLessThan(0.36);
   });
 
-  it("6種類すべてのアイテムが出現し、Pierce と Skull は希少", () => {
+  it("7種類すべてのアイテムが出現し、Pierce と Skull は希少", () => {
     const counts = new Map<number, number>();
     for (let seed = 0; seed < 200; seed++) {
       const { hiddenItems } = createMap({ seed }, ALL_SLOTS);
@@ -192,7 +223,7 @@ describe("map", () => {
         counts.set(kind, (counts.get(kind) ?? 0) + 1);
       }
     }
-    // 6種すべてが出る
+    // 7種すべてが出る
     for (const kind of [
       Powerup.Fire,
       Powerup.Bomb,
@@ -200,6 +231,7 @@ describe("map", () => {
       Powerup.Pierce,
       Powerup.Skull,
       Powerup.WallPass,
+      Powerup.Punch,
     ]) {
       expect(counts.get(kind) ?? 0).toBeGreaterThan(0);
     }
@@ -227,6 +259,25 @@ describe("map", () => {
       seen.add(count);
     }
     // 1個のマップも2個のマップも実際に出る
+    expect(seen.has(1)).toBe(true);
+    expect(seen.has(2)).toBe(true);
+  });
+
+  it("パンチグローブは1マップにちょうど1〜2個だけ隠される", () => {
+    const seen = new Set<number>();
+    for (let seed = 0; seed < 100; seed++) {
+      const { grid, hiddenItems } = createMap({ seed }, ALL_SLOTS);
+      let count = 0;
+      for (let i = 0; i < hiddenItems.length; i++) {
+        if (hiddenItems[i] === Powerup.Punch + 1) {
+          count++;
+          expect(grid[i]).toBe(Tile.Soft);
+        }
+      }
+      expect(count).toBeGreaterThanOrEqual(1);
+      expect(count).toBeLessThanOrEqual(2);
+      seen.add(count);
+    }
     expect(seen.has(1)).toBe(true);
     expect(seen.has(2)).toBe(true);
   });
@@ -699,6 +750,22 @@ describe("protocol", () => {
     expect(buildSnap(state, [0, 0]).b[0]![7]).toBe(1 << 0);
     expect(tilePassable(state, 3, 3, p)).toBe(true);
   });
+
+  it("buildSnap がパンチ飛翔状態（flyTicks / flyFrom）を載せる", () => {
+    const state = bareState();
+    placeAt(state, 0, 3, 3);
+    const p = state.players[0]!;
+    p.punch = true;
+    p.dir = Dir.Right;
+    addBomb(state, 4, 3, 1);
+    stepGame(state, inputs({ 0: Key.Punch }));
+
+    const b = buildSnap(state, [0, 0]).b[0]!;
+    expect(b[1]).toBe(7); // cx = 着地予定タイル
+    expect(b[8]).toBe(PUNCH_DISTANCE * PUNCH_FLY_TICKS_PER_TILE); // flyTicks
+    expect(b[9]).toBe(4); // flyFromCx
+    expect(b[10]).toBe(3); // flyFromCy
+  });
 });
 
 // ===== 6.5 壁すり抜け =====
@@ -864,6 +931,222 @@ describe("wall pass", () => {
     const snap = buildSnap(state, [0, 0]);
     const mine = snap.p.find((q) => q[0] === 0)!;
     expect(mine[9]).toBe(2);
+  });
+});
+
+// ===== 6.6 ボムパンチ =====
+
+describe("bomb punch", () => {
+  /** p0 を (3,3) で右向き・グローブ持ちにし、(4,3) に接地爆弾を置いた状態 */
+  function punchSetup(): { state: GameState; bomb: Bomb } {
+    const state = bareState();
+    placeAt(state, 0, 3, 3);
+    const p = state.players[0]!;
+    p.punch = true;
+    p.dir = Dir.Right;
+    const bomb = addBomb(state, 4, 3, 1);
+    return { state, bomb };
+  }
+
+  it("パンチグローブを取ると punch が立ち、snap の flags に載る", () => {
+    const state = bareState();
+    placeAt(state, 0, 3, 3);
+    state.items.push({ cx: 3, cy: 3, kind: Powerup.Punch, revealTick: 0 });
+    stepGame(state, inputs({}));
+    expect(state.players[0]!.punch).toBe(true);
+    expect(state.events).toContainEqual(["pickup", 0, Powerup.Punch]);
+    const mine = buildSnap(state, [0, 0]).p.find((q) => q[0] === 0)!;
+    expect(mine[4] & 16).toBe(16);
+  });
+
+  it("基本成立: 目の前の爆弾が向いている方向へ3マス飛び、飛翔後に接地する", () => {
+    const { state, bomb } = punchSetup();
+    stepGame(state, inputs({ 0: Key.Punch }));
+    expect(bomb.cx).toBe(7);
+    expect(bomb.cy).toBe(3);
+    expect(bomb.flyFromCx).toBe(4);
+    expect(bomb.flyFromCy).toBe(3);
+    expect(bomb.flyTicks).toBe(PUNCH_DISTANCE * PUNCH_FLY_TICKS_PER_TILE);
+    expect(state.events).toContainEqual(["punch", 0]);
+    for (let i = 0; i < PUNCH_DISTANCE * PUNCH_FLY_TICKS_PER_TILE; i++) {
+      stepGame(state, inputs({}));
+    }
+    expect(bomb.flyTicks).toBe(0);
+    expect(state.bombs).toContain(bomb); // 着地しただけでは爆発しない
+  });
+
+  it("グローブ未所持では飛ばない", () => {
+    const { state, bomb } = punchSetup();
+    state.players[0]!.punch = false;
+    stepGame(state, inputs({ 0: Key.Punch }));
+    expect(bomb.cx).toBe(4);
+    expect(bomb.flyTicks).toBe(0);
+    expect(state.events.some((e) => e[0] === "punch")).toBe(false);
+  });
+
+  it("足元の爆弾は対象外（隣接タイルのみ）", () => {
+    const state = bareState();
+    placeAt(state, 0, 3, 3);
+    const p = state.players[0]!;
+    p.punch = true;
+    p.dir = Dir.Right;
+    const own = addBomb(state, 3, 3);
+    own.passableBy = 1 << 0;
+    stepGame(state, inputs({ 0: Key.Punch }));
+    expect(own.cx).toBe(3);
+    expect(own.flyTicks).toBe(0);
+    expect(state.events.some((e) => e[0] === "punch")).toBe(false);
+  });
+
+  it("エッジ検出: 押しっぱなしでは再発動せず、着地予約マスへは延長着地する", () => {
+    const { state } = punchSetup();
+    stepGame(state, inputs({ 0: Key.Punch })); // 1個目が (7,3) へ飛ぶ
+    const second = addBomb(state, 4, 3, 1); // 空いた同じマスに次の爆弾
+    stepGame(state, inputs({ 0: Key.Punch })); // 押しっぱなし
+    expect(second.flyTicks).toBe(0);
+    stepGame(state, inputs({ 0: 0 }));
+    stepGame(state, inputs({ 0: Key.Punch })); // 押し直しで発動
+    // 3マス先 (7,3) は1個目の着地予約があるので、1マス延長して (8,3) へ
+    expect(second.cx).toBe(8);
+    expect(second.flyTicks).toBe(4 * PUNCH_FLY_TICKS_PER_TILE);
+  });
+
+  it("飛び越え: 途中のソフトブロック・爆弾を越えて3マス先に着地する", () => {
+    const { state, bomb } = punchSetup();
+    state.grid[idx(5, 3)] = Tile.Soft;
+    addBomb(state, 6, 3, 1);
+    stepGame(state, inputs({ 0: Key.Punch }));
+    expect(bomb.cx).toBe(7);
+    expect(bomb.flyTicks).toBe(PUNCH_DISTANCE * PUNCH_FLY_TICKS_PER_TILE);
+  });
+
+  it("延長着地: 3マス先が塞がっていれば最初の空きマスまで飛ぶ", () => {
+    const { state, bomb } = punchSetup();
+    state.grid[idx(7, 3)] = Tile.Soft; // 3マス先はブロック
+    addBomb(state, 8, 3, 1); // 4マス先は爆弾
+    stepGame(state, inputs({ 0: Key.Punch }));
+    expect(bomb.cx).toBe(9); // 5マス先が最初の空き
+    expect(bomb.flyTicks).toBe(5 * PUNCH_FLY_TICKS_PER_TILE);
+  });
+
+  it("マップ端まで空きがなければ不成立（爆弾は動かない）", () => {
+    const state = bareState();
+    placeAt(state, 0, 3, 3);
+    const p = state.players[0]!;
+    p.punch = true;
+    p.dir = Dir.Left;
+    const bombL = addBomb(state, 2, 3, 1);
+    stepGame(state, inputs({ 0: Key.Punch })); // 3マス先 (-1,3) が即マップ外
+    expect(bombL.cx).toBe(2);
+    expect(bombL.flyTicks).toBe(0);
+    expect(state.events.some((e) => e[0] === "punch")).toBe(false);
+
+    // 外周 Hard を延長スキャンしてもマップ外へ抜けるだけのケース
+    placeAt(state, 0, 12, 3);
+    p.dir = Dir.Right;
+    const bombR = addBomb(state, 13, 3, 1);
+    stepGame(state, inputs({ 0: 0 }));
+    stepGame(state, inputs({ 0: Key.Punch })); // 3マス先 (16,3) は外周 Hard
+    expect(bombR.cx).toBe(13);
+    expect(bombR.flyTicks).toBe(0);
+  });
+
+  it("他人の爆弾もパンチできる（所有・bombsActive は不変）", () => {
+    const { state, bomb } = punchSetup();
+    state.players[1]!.bombsActive = 1;
+    stepGame(state, inputs({ 0: Key.Punch }));
+    expect(bomb.flyTicks).toBeGreaterThan(0);
+    expect(bomb.ownerSlot).toBe(1);
+    expect(state.players[1]!.bombsActive).toBe(1);
+    expect(state.players[0]!.bombsActive).toBe(0);
+  });
+
+  it("飛翔中は当たり判定なし: 発射元・着地予定マスとも通行できる", () => {
+    const { state, bomb } = punchSetup();
+    stepGame(state, inputs({ 0: Key.Punch }));
+    const p1 = state.players[1]!;
+    expect(tilePassable(state, 4, 3, p1)).toBe(true); // 発射元
+    expect(tilePassable(state, 7, 3, p1)).toBe(true); // 着地予定
+    for (let i = 0; i < PUNCH_DISTANCE * PUNCH_FLY_TICKS_PER_TILE; i++) {
+      stepGame(state, inputs({}));
+    }
+    expect(bomb.flyTicks).toBe(0);
+    expect(tilePassable(state, 7, 3, p1)).toBe(false); // 着地後は通れない
+  });
+
+  it("飛翔中は誘爆せず爆風は素通りし、着地マスの残存爆風で着地時に爆発する", () => {
+    const { state, bomb } = punchSetup();
+    const other = addBomb(state, 7, 1, 1, 2); // 着地予定 (7,3) の上に fuse 2 の爆弾
+    other.range = 3;
+    stepGame(state, inputs({ 0: Key.Punch })); // other の fuse 2→1
+    stepGame(state, inputs({})); // other が爆発。爆風が (7,3) を縦断する
+    const blastTiles = new Set(state.blasts.map((b) => `${b.cx},${b.cy}`));
+    expect(blastTiles.has("7,3")).toBe(true);
+    expect(blastTiles.has("7,4")).toBe(true); // 飛翔中の爆弾では遮蔽されない
+    expect(state.bombs).toContain(bomb); // 誘爆していない
+    expect(bomb.flyTicks).toBe(5);
+    // 爆風は BLAST_TICKS(10) 残るので、着地と同時に爆発する
+    for (let i = 0; i < 5; i++) stepGame(state, inputs({}));
+    expect(state.bombs).toHaveLength(0);
+    expect(state.events).toContainEqual(["boom", 7, 3]);
+  });
+
+  it("導火線が飛翔中に尽きても、爆発は着地まで遅延する", () => {
+    const { state, bomb } = punchSetup();
+    bomb.fuse = 3;
+    stepGame(state, inputs({ 0: Key.Punch }));
+    for (let i = 0; i < 5; i++) {
+      stepGame(state, inputs({}));
+      expect(state.bombs).toContain(bomb); // fuse が尽きても飛翔中は爆発しない
+    }
+    stepGame(state, inputs({})); // 着地と同時に爆発
+    expect(state.bombs).toHaveLength(0);
+    expect(state.events).toContainEqual(["boom", 7, 3]);
+  });
+
+  it("着地マスに立っていたプレイヤーは passableBy が再セットされ、離れると失効する", () => {
+    const { state, bomb } = punchSetup();
+    placeAt(state, 1, 7, 3); // 着地予定マスに p1 が立っている
+    stepGame(state, inputs({ 0: Key.Punch }));
+    for (let i = 0; i < PUNCH_DISTANCE * PUNCH_FLY_TICKS_PER_TILE; i++) {
+      stepGame(state, inputs({}));
+    }
+    expect(bomb.flyTicks).toBe(0);
+    expect(bomb.passableBy & (1 << 1)).not.toBe(0);
+    expect(tilePassable(state, 7, 3, state.players[1]!)).toBe(true);
+    expect(tilePassable(state, 7, 3, state.players[0]!)).toBe(false);
+    // p1 が離れるとビットが落ち、戻っても通れない
+    for (let i = 0; i < 12; i++) stepGame(state, inputs({ 1: Key.Right }));
+    expect(bomb.passableBy & (1 << 1)).toBe(0);
+    expect(tilePassable(state, 7, 3, state.players[1]!)).toBe(false);
+  });
+
+  it("飛翔中の着地予定マスには爆弾を置けない（予約）", () => {
+    const { state } = punchSetup();
+    placeAt(state, 1, 7, 3);
+    stepGame(state, inputs({ 0: Key.Punch }));
+    expect(state.bombs).toHaveLength(1);
+    stepGame(state, inputs({ 1: Key.Bomb })); // p1 が着地予定マスで設置を試みる
+    expect(state.bombs).toHaveLength(1); // 置けない
+  });
+
+  it("ドクロ中でもパンチできる（bool 能力はデバフ対象外）", () => {
+    const { state, bomb } = punchSetup();
+    state.players[0]!.skullTicks = 100;
+    stepGame(state, inputs({ 0: Key.Punch }));
+    expect(bomb.flyTicks).toBeGreaterThan(0);
+  });
+
+  it("決定論: パンチを含む同一入力列から同一状態になる", () => {
+    const run = (): string => {
+      const { state } = punchSetup();
+      stepGame(state, inputs({ 0: Key.Punch }));
+      for (let i = 0; i < 20; i++) {
+        stepGame(state, inputs({ 0: i % 2 === 0 ? Key.Right : 0 }));
+      }
+      return stateHash(state);
+    };
+    expect(run()).toBe(run());
   });
 });
 

@@ -32,6 +32,7 @@ export function tilePassable(
   }
   if (t !== Tile.Floor) return false;
   for (const b of state.bombs) {
+    if (b.flyTicks > 0) continue; // パンチ飛翔中は当たり判定なし（着地予定マスも通れる）
     if (b.cx === cx && b.cy === cy) return (b.passableBy & (1 << p.slot)) !== 0;
   }
   return true;

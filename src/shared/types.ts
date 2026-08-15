@@ -21,15 +21,18 @@ export const enum Powerup {
   Skull = 4,
   /** 壁すり抜け: 1チャージにつき1回、ブロックの中を通り抜けられる（レア） */
   WallPass = 5,
+  /** パンチグローブ: 隣接する爆弾を向いている方向へ飛ばせる（レア・永続） */
+  Punch = 6,
 }
 
-// 入力の 5bit ビットマスク
+// 入力の 6bit ビットマスク
 export const enum Key {
   Up = 1,
   Down = 2,
   Left = 4,
   Right = 8,
   Bomb = 16,
+  Punch = 32,
 }
 
 export type Phase = "waiting" | "countdown" | "playing" | "finished";
@@ -46,6 +49,7 @@ export interface Player {
   bombCap: number; // 同時設置数
   bombsActive: number;
   pierce: boolean; // 貫通爆弾を持っているか
+  punch: boolean; // パンチグローブを持っているか
   skullTicks: number; // ドクロデバフの残り tick（0=なし）
   wallPass: number; // 壁すり抜けの残りチャージ（壁から抜け出た瞬間に1消費）
   inSoftWall: boolean; // 中心タイルがソフトブロック内か（チャージ消費のエッジ検出用）
@@ -55,13 +59,16 @@ export interface Player {
 
 export interface Bomb {
   id: number;
-  cx: number; // タイル座標
+  cx: number; // タイル座標。パンチ発動時に着地タイルへ即時確定する（着地マスの予約を兼ねる）
   cy: number;
   ownerSlot: number;
   fuse: number; // 残り tick
   range: number; // 設置時点の owner.fire をコピー
   pierce: boolean; // 設置時点の owner.pierce をコピー
   passableBy: number; // 設置時にこのマスへ重なっていたプレイヤーのビットマスク
+  flyTicks: number; // パンチ飛翔の残り tick（0=接地）。飛翔中は当たり判定・誘爆の対象外
+  flyFromCx: number; // 飛翔の発射元タイル（描画用。接地中は cx/cy と同値）
+  flyFromCy: number;
 }
 
 // 「1マス = 1爆風エンティティ」
@@ -85,7 +92,8 @@ export type GameEvent =
   | ["boom", number, number] // cx, cy
   | ["die", number] // slot
   | ["pickup", number, number] // slot, kind
-  | ["place", number]; // slot
+  | ["place", number] // slot
+  | ["punch", number]; // slot
 
 export interface GameState {
   tick: number;

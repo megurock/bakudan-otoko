@@ -1,4 +1,11 @@
-import { BLAST_TICKS, MAP_H, MAP_W, SUB, TICK_MS } from "../../shared/constants";
+import {
+  BLAST_TICKS,
+  MAP_H,
+  MAP_W,
+  PUNCH_FLY_TICKS_PER_TILE,
+  SUB,
+  TICK_MS,
+} from "../../shared/constants";
 import type { RosterEntry, Snap } from "../../shared/protocol";
 import { Tile } from "../../shared/types";
 import type { InterpPlayer } from "./interpolation";
@@ -44,6 +51,7 @@ export class Renderer {
   private readonly bg: HTMLCanvasElement;
   private effects: Effect[] = [];
   private blastSeen = new Map<string, number>(); // "cx,cy" → 初見時刻
+  private bombFlySeen = new Map<number, number>(); // bomb id → 飛翔の描画開始時刻
   private deadSeen = new Set<number>();
 
   constructor(canvas: HTMLCanvasElement) {
@@ -79,6 +87,7 @@ export class Renderer {
   resetMatchState(): void {
     this.effects = [];
     this.blastSeen.clear();
+    this.bombFlySeen.clear();
     this.deadSeen.clear();
   }
 
@@ -158,12 +167,55 @@ export class Renderer {
 
   private drawBombs(snap: Snap, now: number): void {
     const sprites = getSprites();
-    for (const [, cx, cy, fuse] of snap.b) {
+    const flyingIds = new Set<number>();
+    for (const [id, cx, cy, fuse, , , , , flyTicks, fromCx, fromCy] of snap.b) {
       // 脈動: 残り時間が短いほど速く
       const rate = fuse < 20 ? 90 : 180;
       const frame = Math.floor(now / rate) % 2;
       const sprite = sprites.bomb[frame]!;
-      this.g.drawImage(sprite, cx * TILE_PX, cy * TILE_PX, TILE_PX, TILE_PX);
+
+      if (!flyTicks) {
+        this.g.drawImage(sprite, cx * TILE_PX, cy * TILE_PX, TILE_PX, TILE_PX);
+        continue;
+      }
+
+      // パンチ飛翔: snap は 20Hz なので、初見時刻からローカル時計で滑らかに補間する
+      // （blastSeen と同じ流儀）。cx/cy は着地予定、fromCx/fromCy が発射元
+      flyingIds.add(id);
+      const sx = fromCx ?? cx;
+      const sy = fromCy ?? cy;
+      const dist = Math.abs(cx - sx) + Math.abs(cy - sy);
+      const totalMs = dist * PUNCH_FLY_TICKS_PER_TILE * TICK_MS;
+      let start = this.bombFlySeen.get(id);
+      if (start === undefined) {
+        // 初見時点で既に消化済みの飛翔時間ぶんを差し引く（途中参加や遅延に頑健）
+        start = now - (totalMs - flyTicks * TICK_MS);
+        this.bombFlySeen.set(id, start);
+      }
+      const t = Math.min(1, totalMs > 0 ? (now - start) / totalMs : 1);
+      const gx = (sx + (cx - sx) * t) * TILE_PX;
+      const gy = (sy + (cy - sy) * t) * TILE_PX;
+      const arc = Math.sin(Math.PI * t) * TILE_PX * 0.8; // 山なりジャンプ
+
+      // 地面の影（高いほど小さく薄く）
+      const h = arc / (TILE_PX * 0.8);
+      this.g.fillStyle = `rgba(0,0,0,${0.3 - h * 0.15})`;
+      this.g.beginPath();
+      this.g.ellipse(
+        gx + TILE_PX / 2,
+        gy + TILE_PX * 0.8,
+        (TILE_PX / 4) * (1 - h * 0.4),
+        TILE_PX / 10,
+        0,
+        0,
+        Math.PI * 2,
+      );
+      this.g.fill();
+      this.g.drawImage(sprite, gx, gy - arc, TILE_PX, TILE_PX);
+    }
+    // 着地・消滅した爆弾の記録を掃除
+    for (const id of [...this.bombFlySeen.keys()]) {
+      if (!flyingIds.has(id)) this.bombFlySeen.delete(id);
     }
   }
 

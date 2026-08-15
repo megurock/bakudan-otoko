@@ -25,7 +25,7 @@ export type SnapPlayer = [
   x: number,
   y: number,
   dir: number,
-  flags: number, // bit0=alive bit1=connected bit2=pierce bit3=inSoftWall
+  flags: number, // bit0=alive bit1=connected bit2=pierce bit3=inSoftWall bit4=punch
   fire: number,
   bombCap: number,
   speed: number,
@@ -43,6 +43,11 @@ export type SnapBomb = [
   // 設置直後にすり抜けられるプレイヤーのビットマスク。クライアント予測が
   // サーバーと同じ判定を再現するために必要（近似するとひっかかりが出る）
   passableBy: number,
+  // パンチ飛翔。予測が「飛翔中は通行可」をサーバーと同じ値で再現するために必要。
+  // cx/cy は着地（予定）タイル、flyFrom は発射元（描画の補間用）
+  flyTicks: number,
+  flyFromCx: number,
+  flyFromCy: number,
 ];
 export type SnapBlast = [cx: number, cy: number, dir: number, shape: number];
 export type SnapItem = [cx: number, cy: number, kind: number];
@@ -166,7 +171,8 @@ export function buildSnap(state: GameState, ackSeqs: number[]): Snap {
       (p.alive ? 1 : 0) |
         (p.connected ? 2 : 0) |
         (p.pierce ? 4 : 0) |
-        (p.inSoftWall ? 8 : 0),
+        (p.inSoftWall ? 8 : 0) |
+        (p.punch ? 16 : 0),
       p.fire,
       p.bombCap,
       p.speed,
@@ -182,6 +188,9 @@ export function buildSnap(state: GameState, ackSeqs: number[]): Snap {
       b.ownerSlot,
       b.pierce ? 1 : 0,
       b.passableBy,
+      b.flyTicks,
+      b.flyFromCx,
+      b.flyFromCy,
     ]),
     f: state.blasts.map((bl) => [bl.cx, bl.cy, bl.dir, bl.shape]),
     u: state.items
