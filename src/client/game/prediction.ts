@@ -132,7 +132,7 @@ export class Prediction {
     // 世界を最新化（爆弾は snap の値をそのまま採用）
     this.world.grid = grid;
     this.world.bombs = snap.b.map(
-      ([id, cx, cy, fuse, range, ownerSlot, pierce, passableBy, flyTicks, flyFromCx, flyFromCy]): Bomb => ({
+      ([id, cx, cy, fuse, range, ownerSlot, pierce, passableBy, flyTicks, flyFromCx, flyFromCy, flyDir, flyDist]): Bomb => ({
         id,
         cx,
         cy,
@@ -149,6 +149,8 @@ export class Prediction {
         flyTicks: flyTicks ?? 0,
         flyFromCx: flyFromCx ?? cx,
         flyFromCy: flyFromCy ?? cy,
+        flyDir: (flyDir ?? 0) as Dir,
+        flyDist: flyDist ?? 0,
       }),
     );
     this.me.alive = (flags & 1) !== 0;

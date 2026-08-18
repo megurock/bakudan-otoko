@@ -11,11 +11,9 @@ const KEYMAP: Record<string, number> = {
   KeyD: Key.Right,
   Space: Key.Bomb,
   KeyZ: Key.Bomb,
-  KeyX: Key.Punch, // 矢印キー派: Z（爆弾）の隣
-  KeyE: Key.Punch, // WASD 派: 指の届く位置
 };
 
-/** キーボード状態を 6bit マスクとして追跡し、変化時にコールバックする */
+/** キーボード状態を 5bit マスクとして追跡し、変化時にコールバックする */
 export class InputTracker {
   private mask = 0;
   private readonly onChange: (mask: number) => void;

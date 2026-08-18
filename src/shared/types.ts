@@ -25,14 +25,13 @@ export const enum Powerup {
   Punch = 6,
 }
 
-// 入力の 6bit ビットマスク
+// 入力の 5bit ビットマスク
 export const enum Key {
   Up = 1,
   Down = 2,
   Left = 4,
   Right = 8,
   Bomb = 16,
-  Punch = 32,
 }
 
 export type Phase = "waiting" | "countdown" | "playing" | "finished";
@@ -69,6 +68,8 @@ export interface Bomb {
   flyTicks: number; // パンチ飛翔の残り tick（0=接地）。飛翔中は当たり判定・誘爆の対象外
   flyFromCx: number; // 飛翔の発射元タイル（描画用。接地中は cx/cy と同値）
   flyFromCy: number;
+  flyDir: Dir; // 飛翔方向（描画用。ラップすると from→cx の直線では向きが分からない）
+  flyDist: number; // 飛翔の総マス数（ラップ跨ぎ込みのホップ数。0=接地）
 }
 
 // 「1マス = 1爆風エンティティ」

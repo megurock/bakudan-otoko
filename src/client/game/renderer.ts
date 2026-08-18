@@ -168,7 +168,18 @@ export class Renderer {
   private drawBombs(snap: Snap, now: number): void {
     const sprites = getSprites();
     const flyingIds = new Set<number>();
-    for (const [id, cx, cy, fuse, , , , , flyTicks, fromCx, fromCy] of snap.b) {
+    // Dir → タイル差分（shared の DIR_DELTA と同値）
+    const DELTA: ReadonlyArray<readonly [number, number]> = [
+      [0, -1],
+      [0, 1],
+      [-1, 0],
+      [1, 0],
+    ];
+    // 外周を除いた内側で連続座標をラップ（画面の端どうしがつながる）
+    const wrap = (v: number, span: number): number =>
+      1 + ((((v - 1) % span) + span) % span);
+
+    for (const [id, cx, cy, fuse, , , , , flyTicks, fromCx, fromCy, flyDir, flyDist] of snap.b) {
       // 脈動: 残り時間が短いほど速く
       const rate = fuse < 20 ? 90 : 180;
       const frame = Math.floor(now / rate) % 2;
@@ -180,11 +191,13 @@ export class Renderer {
       }
 
       // パンチ飛翔: snap は 20Hz なので、初見時刻からローカル時計で滑らかに補間する
-      // （blastSeen と同じ流儀）。cx/cy は着地予定、fromCx/fromCy が発射元
+      // （blastSeen と同じ流儀）。cx/cy は着地予定だが、画面端をラップするため
+      // from→cx の直線ではなく flyDir/flyDist から経路を再構築する
       flyingIds.add(id);
       const sx = fromCx ?? cx;
       const sy = fromCy ?? cy;
-      const dist = Math.abs(cx - sx) + Math.abs(cy - sy);
+      const dist = flyDist ?? Math.abs(cx - sx) + Math.abs(cy - sy);
+      const [dx, dy] = DELTA[flyDir ?? 0]!;
       const totalMs = dist * PUNCH_FLY_TICKS_PER_TILE * TICK_MS;
       let start = this.bombFlySeen.get(id);
       if (start === undefined) {
@@ -193,8 +206,8 @@ export class Renderer {
         this.bombFlySeen.set(id, start);
       }
       const t = Math.min(1, totalMs > 0 ? (now - start) / totalMs : 1);
-      const gx = (sx + (cx - sx) * t) * TILE_PX;
-      const gy = (sy + (cy - sy) * t) * TILE_PX;
+      const gx = wrap(sx + dx * dist * t, MAP_W - 2) * TILE_PX;
+      const gy = wrap(sy + dy * dist * t, MAP_H - 2) * TILE_PX;
       const arc = Math.sin(Math.PI * t) * TILE_PX * 0.8; // 山なりジャンプ
 
       // 地面の影（高いほど小さく薄く）

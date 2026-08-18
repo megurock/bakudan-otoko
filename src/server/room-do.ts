@@ -171,7 +171,7 @@ export class RoomDO {
         if (msg.seq <= (this.lastSeq[att.slot] ?? 0)) return; // 後退 seq は無視
         this.lastSeq[att.slot] = msg.seq;
         const q = this.inputQueue[att.slot];
-        if (q) enqueueInput(q, (this.game?.tick ?? 0) + 1, msg.tick, msg.keys & 63);
+        if (q) enqueueInput(q, (this.game?.tick ?? 0) + 1, msg.tick, msg.keys & 31);
         return;
       }
       case "setWinTarget": {

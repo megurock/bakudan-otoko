@@ -44,10 +44,14 @@ export type SnapBomb = [
   // サーバーと同じ判定を再現するために必要（近似するとひっかかりが出る）
   passableBy: number,
   // パンチ飛翔。予測が「飛翔中は通行可」をサーバーと同じ値で再現するために必要。
-  // cx/cy は着地（予定）タイル、flyFrom は発射元（描画の補間用）
+  // cx/cy は着地（予定）タイル、flyFrom は発射元（描画の補間用）。
+  // 画面端をラップして飛ぶため、from→cx の直線からは経路が導けない。
+  // 方向と総マス数を明示的に送る
   flyTicks: number,
   flyFromCx: number,
   flyFromCy: number,
+  flyDir: number,
+  flyDist: number,
 ];
 export type SnapBlast = [cx: number, cy: number, dir: number, shape: number];
 export type SnapItem = [cx: number, cy: number, kind: number];
@@ -191,6 +195,8 @@ export function buildSnap(state: GameState, ackSeqs: number[]): Snap {
       b.flyTicks,
       b.flyFromCx,
       b.flyFromCy,
+      b.flyDir,
+      b.flyDist,
     ]),
     f: state.blasts.map((bl) => [bl.cx, bl.cy, bl.dir, bl.shape]),
     u: state.items

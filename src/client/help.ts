@@ -47,9 +47,10 @@ const ITEM_DOCS: ItemDoc[] = [
     kind: Powerup.Punch,
     name: "パンチグローブ（レア）",
     desc:
-      `目の前の爆弾を X / E で向いている方向へ${PUNCH_DISTANCE}マス飛ばせる。` +
-      "壁も爆弾も相手も飛び越え、着地先が塞がっていればさらに先の空きマスまで飛ぶ。" +
-      "他人の爆弾もパンチできる。一度取れば効果はずっと続く。",
+      `爆弾に向かって歩いて押すと、進行方向へ${PUNCH_DISTANCE}マス飛ばせる。` +
+      "壁も爆弾も相手も飛び越え、画面の端まで飛ぶと反対側から出てくる。" +
+      "着地先が塞がっていればさらに先の空きマスへ。" +
+      "他人の爆弾も押せる。一度取れば効果はずっと続く。",
   },
 ];
 
@@ -95,7 +96,7 @@ export function renderHelp(app: HTMLElement): void {
         </tr>
         <tr>
           <td style="padding-right:24px;color:#aaa">ボムパンチ</td>
-          <td><kbd>X</kbd> または <kbd>E</kbd>（パンチグローブ所持中のみ）</td>
+          <td>爆弾に向かって歩いて押す（パンチグローブ所持中のみ）</td>
         </tr>
       </table>
       <p style="color:#888;margin-top:12px;line-height:1.7">

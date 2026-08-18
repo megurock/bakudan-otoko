@@ -9,6 +9,7 @@ import {
   MAP_H,
   MAP_W,
   MATCH_MAX_TICKS,
+  PLAYER_HALF,
   PUNCH_DISTANCE,
   PUNCH_FLY_TICKS_PER_TILE,
   SKULL_BOMB_CAP,
@@ -211,45 +212,75 @@ function tryPlaceBomb(state: GameState, p: Player): void {
     flyTicks: 0,
     flyFromCx: cx,
     flyFromCy: cy,
+    flyDir: Dir.Up,
+    flyDist: 0,
   });
   p.bombsActive++;
   state.events.push(["place", p.slot]);
 }
 
+// 方向キー（Dir enum の値がそのままインデックス）
+const KEY_FOR_DIR: readonly number[] = [Key.Up, Key.Down, Key.Left, Key.Right];
+
+/** 外周（Hard の額縁）を除いた内側で座標をラップする（画面の端どうしがつながる） */
+function wrapInterior(v: number, span: number): number {
+  return 1 + ((((v - 1) % span) + span) % span);
+}
+
 /**
- * ボムパンチ: 向いている方向の隣接タイルにある接地爆弾を、同方向へ
- * PUNCH_DISTANCE マス飛ばす（足元の爆弾は対象外）。着地点は発動時に確定し、
- * 3マス先が塞がっていれば 1 マスずつ延長して最初の空きマスへ。
- * マップ外まで空きがなければ不成立（爆弾は動かない）。
+ * ボムパンチ（押し出し）: グローブ所持中に方向キーで爆弾へ体を押し付けると、
+ * その爆弾が進行方向へ PUNCH_DISTANCE マス飛ぶ。飛翔は画面の端でラップして
+ * 反対側へ抜ける。movePlayer の後に呼ぶこと（クランプ後の接触位置で判定する）。
  */
 function tryPunch(state: GameState, p: Player): void {
   if (!p.punch) return;
-  const pressed = (p.keys & Key.Punch) !== 0 && (p.prevKeys & Key.Punch) === 0;
-  if (!pressed) return;
-
-  const [dx, dy] = DIR_DELTA[p.dir]!;
-  const bx = centerTileX(p) + dx;
-  const by = centerTileY(p) + dy;
-  const bomb = findGroundedBombAt(state, bx, by);
-  if (!bomb) return;
-
-  // 空きマス = Floor かつ爆弾なし（飛翔中爆弾の着地予約も含めて避ける）
-  let dist = PUNCH_DISTANCE;
-  for (;;) {
-    const tx = bx + dx * dist;
-    const ty = by + dy * dist;
-    if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H) return; // マップ外 = 不成立
-    if (tileAt(state.grid, tx, ty) === Tile.Floor && !findBombAt(state, tx, ty)) break;
-    dist++;
+  const ctx = centerTileX(p);
+  const cty = centerTileY(p);
+  for (const dir of [Dir.Up, Dir.Down, Dir.Left, Dir.Right]) {
+    if ((p.keys & KEY_FOR_DIR[dir]!) === 0) continue;
+    const [dx, dy] = DIR_DELTA[dir]!;
+    const bomb = findGroundedBombAt(state, ctx + dx, cty + dy);
+    if (!bomb) continue;
+    // 体が爆弾のマスに接しているときだけ「押せる」。隣接タイルにあるだけでは
+    // 届かない（movePlayer が爆弾の縁でクランプした位置が接触位置になる）
+    if (dx > 0 && p.x + PLAYER_HALF < bomb.cx * SUB) continue;
+    if (dx < 0 && p.x - PLAYER_HALF > (bomb.cx + 1) * SUB) continue;
+    if (dy > 0 && p.y + PLAYER_HALF < bomb.cy * SUB) continue;
+    if (dy < 0 && p.y - PLAYER_HALF > (bomb.cy + 1) * SUB) continue;
+    launchBomb(state, bomb, dir, p.slot);
   }
+}
+
+/**
+ * 着地点を確定して爆弾を飛ばす。着地点は PUNCH_DISTANCE マス先から同方向へ
+ * 1 マスずつ延長した最初の空きマス（Floor かつ爆弾なし）。画面端はラップする。
+ * 一周しても空きがなければ不成立（自分の元の位置には着地できない）。
+ */
+function launchBomb(state: GameState, bomb: Bomb, dir: Dir, slot: number): void {
+  const [dx, dy] = DIR_DELTA[dir]!;
+  const spanX = MAP_W - 2;
+  const spanY = MAP_H - 2;
+  const cycle = dx !== 0 ? spanX : spanY;
+  let dist = 0;
+  for (let d = PUNCH_DISTANCE; d < PUNCH_DISTANCE + cycle; d++) {
+    const tx = wrapInterior(bomb.cx + dx * d, spanX);
+    const ty = wrapInterior(bomb.cy + dy * d, spanY);
+    if (tileAt(state.grid, tx, ty) !== Tile.Floor) continue;
+    if (findBombAt(state, tx, ty)) continue; // 飛翔中の着地予約・自分自身も塞ぐ
+    dist = d;
+    break;
+  }
+  if (dist === 0) return;
 
   bomb.flyFromCx = bomb.cx;
   bomb.flyFromCy = bomb.cy;
-  bomb.cx = bx + dx * dist;
-  bomb.cy = by + dy * dist;
+  bomb.cx = wrapInterior(bomb.cx + dx * dist, spanX);
+  bomb.cy = wrapInterior(bomb.cy + dy * dist, spanY);
+  bomb.flyDir = dir;
+  bomb.flyDist = dist;
   bomb.flyTicks = dist * PUNCH_FLY_TICKS_PER_TILE;
   bomb.passableBy = 0; // 飛翔中は判定対象外。着地時に重なりで再セットする
-  state.events.push(["punch", p.slot]);
+  state.events.push(["punch", slot]);
 }
 
 // ドクロ中の実効能力。素の値は保持しておき、デバフが切れたら元に戻る
@@ -301,7 +332,7 @@ function pickupItem(state: GameState, p: Player): void {
 /**
  * 権威シミュレーション 1 tick。
  * 処理順は仕様として固定（テストで担保）:
- * 爆風減衰 → 導火線 → 爆発解決 → プレイヤー(設置→移動→取得) → passableBy 更新 → 死亡 → 勝敗
+ * 爆風減衰 → 導火線 → 爆発解決 → プレイヤー(設置→移動→パンチ→取得) → passableBy 更新 → 死亡 → 勝敗
  */
 export function stepGame(state: GameState, inputs: InputMap): void {
   state.events = [];
@@ -356,8 +387,8 @@ export function stepGame(state: GameState, inputs: InputMap): void {
     p.prevKeys = p.keys;
     p.keys = inputs[p.slot] ?? 0;
     tryPlaceBomb(state, p);
-    tryPunch(state, p);
     movePlayer(state, p, p.keys);
+    tryPunch(state, p); // 移動後: 爆弾に押し付けた接触位置で判定する
     // 壁すり抜けの消費: ブロックに入り、完全に抜けきった時点で1チャージ消費する。
     // 判定に体全体を使うのは、中心タイルだけで見ると半身が壁に残っていても
     // 「抜けた」ことになり、効力が早く切れてしまうため
