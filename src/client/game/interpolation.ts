@@ -17,6 +17,8 @@ export interface InterpPlayer {
   bombCap: number;
   speed: number;
   skullTicks: number;
+  /** 無敵の残り tick（虹色点滅の表示に使う。0=なし） */
+  invincibleTicks: number;
 }
 
 interface BufferedSnap {
@@ -74,7 +76,7 @@ export class SnapBuffer {
 
     const result: InterpPlayer[] = [];
     for (const pNew of newer.snap.p) {
-      const [slot, x1, y1, dir, flags, fire, bombCap, speed, skullTicks] = pNew;
+      const [slot, x1, y1, dir, flags, fire, bombCap, speed, skullTicks, , invincibleTicks] = pNew;
       const pOld = older.snap.p.find((q) => q[0] === slot) ?? pNew;
       const [, x0, y0] = pOld;
       result.push({
@@ -90,6 +92,7 @@ export class SnapBuffer {
         bombCap,
         speed,
         skullTicks,
+        invincibleTicks: invincibleTicks ?? 0,
       });
     }
     return result;

@@ -6,6 +6,7 @@ import {
   FIRE_MAX,
   FUSE_TICKS,
   HALF_TILE,
+  INVINCIBLE_TICKS,
   MAP_H,
   MAP_W,
   MATCH_MAX_TICKS,
@@ -57,6 +58,7 @@ export function createPlayer(slot: number): Player {
     pierce: false,
     punch: false,
     skullTicks: 0,
+    invincibleTicks: 0,
     wallPass: 0,
     inSoftWall: false,
     keys: 0,
@@ -327,6 +329,10 @@ function pickupItem(state: GameState, p: Player): void {
         // 一気に上限まで。ドクロを踏めば effectiveFire が一時的に落ちるのは他と同じ
         p.fire = FIRE_MAX;
         break;
+      case Powerup.Invincible:
+        // 上書き（重ね取りで延長されるのではなく、取り直すたびに満タン）
+        p.invincibleTicks = INVINCIBLE_TICKS;
+        break;
     }
     state.items.splice(i, 1);
     state.events.push(["pickup", p.slot, item.kind]);
@@ -388,6 +394,7 @@ export function stepGame(state: GameState, inputs: InputMap): void {
   for (const p of state.players) {
     if (!p.alive) continue;
     if (p.skullTicks > 0) p.skullTicks--;
+    if (p.invincibleTicks > 0) p.invincibleTicks--;
     p.prevKeys = p.keys;
     p.keys = inputs[p.slot] ?? 0;
     tryPlaceBomb(state, p);
@@ -415,6 +422,7 @@ export function stepGame(state: GameState, inputs: InputMap): void {
   // 6. 死亡判定（中心タイルが爆風マス）
   for (const p of state.players) {
     if (!p.alive) continue;
+    if (p.invincibleTicks > 0) continue; // 無敵中は爆風を浴びても死なない
     const cx = centerTileX(p);
     const cy = centerTileY(p);
     if (state.blasts.some((bl) => bl.cx === cx && bl.cy === cy)) {

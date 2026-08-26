@@ -1,7 +1,13 @@
 // 遊び方画面。実際のゲームで使うスプライトをそのまま並べるので、
 // 説明の見た目と本編の見た目が必ず一致する。
 
-import { FIRE_MAX, PUNCH_DISTANCE, SKULL_TICKS, TICK_RATE } from "../shared/constants";
+import {
+  FIRE_MAX,
+  INVINCIBLE_TICKS,
+  PUNCH_DISTANCE,
+  SKULL_TICKS,
+  TICK_RATE,
+} from "../shared/constants";
 import { getSprites } from "./game/sprites";
 import { Powerup } from "../shared/types";
 import { logoHtml } from "./logo";
@@ -58,6 +64,14 @@ const ITEM_DOCS: ItemDoc[] = [
     desc:
       `拾った瞬間、火力が最大の${FIRE_MAX}マスまで一気に上がる。` +
       "火力アップを積み重ねる必要はもうない。ただしドクロを踏めば一時的に落ちる。",
+  },
+  {
+    kind: Powerup.Invincible,
+    name: "無敵（レア）",
+    desc:
+      `取ると${INVINCIBLE_TICKS / TICK_RATE}秒間、爆風を浴びても死ななくなる。` +
+      "効果中は体が虹色に光り、切れる直前は点滅が速くなる。" +
+      "ただし壁は通り抜けられず、ドクロの罠も通常どおり効く。",
   },
 ];
 

@@ -1,5 +1,6 @@
 import {
   BLAST_TICKS,
+  INVINCIBLE_WARN_TICKS,
   MAP_H,
   MAP_W,
   PUNCH_FLY_TICKS_PER_TILE,
@@ -353,7 +354,19 @@ export class Renderer {
       // 効力の終了タイミングとズレて、透明が解けたのに壁を通れる状態が生じる）
       if (!p.connected) g.globalAlpha = 0.4;
       else if (p.inSoftWall) g.globalAlpha = 0.55;
+      // 無敵中はスターを取ったときのように色相を高速循環させる。壁すり抜けと
+      // 同時に成立しうるので alpha とは排他にせず、filter を重ねて掛ける
+      if (p.invincibleTicks > 0) {
+        const hue = (Math.floor(now / 16) * 40) % 360;
+        g.filter = `hue-rotate(${hue}deg) saturate(2.2) brightness(1.15)`;
+        // 残りわずかになったら明滅を速めて「そろそろ切れる」と伝える
+        if (p.invincibleTicks <= INVINCIBLE_WARN_TICKS) {
+          g.globalAlpha *= 0.35 + 0.65 * Math.abs(Math.sin(now / 60));
+        }
+      }
       g.drawImage(sprite, px - size / 2, py - size / 2 - 6, size, size);
+      // filter は状態が残るので必ず戻す（名前ラベルや以降の描画に漏れる）
+      g.filter = "none";
       g.globalAlpha = 1;
 
       // 名前

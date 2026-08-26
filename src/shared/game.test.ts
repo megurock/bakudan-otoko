@@ -7,6 +7,7 @@ import {
   FIRE_MAX,
   FUSE_TICKS,
   HALF_TILE,
+  INVINCIBLE_TICKS,
   MAP_H,
   MAP_W,
   MATCH_MAX_TICKS,
@@ -219,7 +220,7 @@ describe("map", () => {
     expect(dropRate).toBeLessThan(0.36);
   });
 
-  it("8種類すべてのアイテムが出現し、Pierce と Skull は希少", () => {
+  it("9種類すべてのアイテムが出現し、Pierce と Skull は希少", () => {
     const counts = new Map<number, number>();
     for (let seed = 0; seed < 200; seed++) {
       const { hiddenItems } = createMap({ seed }, ALL_SLOTS);
@@ -229,7 +230,7 @@ describe("map", () => {
         counts.set(kind, (counts.get(kind) ?? 0) + 1);
       }
     }
-    // 8種すべてが出る
+    // 9種すべてが出る
     for (const kind of [
       Powerup.Fire,
       Powerup.Bomb,
@@ -239,6 +240,7 @@ describe("map", () => {
       Powerup.WallPass,
       Powerup.Punch,
       Powerup.FullFire,
+      Powerup.Invincible,
     ]) {
       expect(counts.get(kind) ?? 0).toBeGreaterThan(0);
     }
@@ -303,7 +305,21 @@ describe("map", () => {
     }
   });
 
-  it("レア3種は互いを上書きせず、確定個数がすべて揃う", () => {
+  it("無敵は1マップにちょうど1個だけ隠される", () => {
+    for (let seed = 0; seed < 100; seed++) {
+      const { grid, hiddenItems } = createMap({ seed }, ALL_SLOTS);
+      let count = 0;
+      for (let i = 0; i < hiddenItems.length; i++) {
+        if (hiddenItems[i] === Powerup.Invincible + 1) {
+          count++;
+          expect(grid[i]).toBe(Tile.Soft);
+        }
+      }
+      expect(count).toBe(1);
+    }
+  });
+
+  it("レア4種は互いを上書きせず、確定個数がすべて揃う", () => {
     // emptySofts を splice で消費しながら順に配るので、後発のフルファイアーが
     // 壁すり抜け/パンチを潰していないことを個数で担保する
     for (let seed = 0; seed < 50; seed++) {
@@ -316,6 +332,7 @@ describe("map", () => {
       expect(counts.get(Powerup.WallPass) ?? 0).toBeGreaterThanOrEqual(1);
       expect(counts.get(Powerup.Punch) ?? 0).toBeGreaterThanOrEqual(1);
       expect(counts.get(Powerup.FullFire) ?? 0).toBe(1);
+      expect(counts.get(Powerup.Invincible) ?? 0).toBe(1);
     }
   });
 });
@@ -600,6 +617,79 @@ describe("death & win", () => {
     });
     stepGame(state, inputs({}));
     expect(p.fire).toBe(FIRE_MAX);
+  });
+
+  it("無敵中は爆風を浴びても死なない（無敵でない者は同じ爆風で死ぬ）", () => {
+    const state = bareState([0, 1, 2]);
+    placeAt(state, 0, 3, 3);
+    placeAt(state, 1, 3, 4); // 爆風の直下（下向き range1）
+    placeAt(state, 2, 13, 13);
+    state.players[1]!.invincibleTicks = INVINCIBLE_TICKS;
+
+    stepGame(state, inputs({ 0: Key.Bomb }));
+    for (let i = 0; i < FUSE_TICKS - 1; i++) {
+      stepGame(state, inputs({ 0: Key.Up })); // p0 は逃げる, p1 は留まる
+    }
+    stepGame(state, inputs({}));
+    // 同じ爆風を浴びているのに、無敵の p1 だけが生き残る
+    expect(state.players[1]!.alive).toBe(true);
+    expect(state.players[1]!.invincibleTicks).toBeGreaterThan(0);
+
+    // 対照: 無敵を持たない p1 は同じ状況で死ぬ
+    const bare = bareState([0, 1, 2]);
+    placeAt(bare, 0, 3, 3);
+    placeAt(bare, 1, 3, 4);
+    placeAt(bare, 2, 13, 13);
+    stepGame(bare, inputs({ 0: Key.Bomb }));
+    for (let i = 0; i < FUSE_TICKS - 1; i++) {
+      stepGame(bare, inputs({ 0: Key.Up }));
+    }
+    stepGame(bare, inputs({}));
+    expect(bare.players[1]!.alive).toBe(false);
+  });
+
+  it("無敵は時間切れで解け、そのあとは爆風で死ぬ", () => {
+    const state = bareState([0, 1, 2]);
+    placeAt(state, 0, 3, 3);
+    placeAt(state, 1, 3, 4);
+    placeAt(state, 2, 13, 13);
+    const p = state.players[1]!;
+
+    // アイテムで取得（pickupItem 経由を通す）
+    state.items.push({ cx: 3, cy: 4, kind: Powerup.Invincible, revealTick: 0 });
+    stepGame(state, inputs({}));
+    expect(p.invincibleTicks).toBe(INVINCIBLE_TICKS);
+
+    // 効果が切れるまで待つ（誰も爆弾を置かないので死なない）
+    for (let i = 0; i < INVINCIBLE_TICKS + 2; i++) stepGame(state, inputs({}));
+    expect(p.invincibleTicks).toBe(0);
+    expect(p.alive).toBe(true);
+
+    // 無敵が切れた状態で爆風を浴びると今度は死ぬ
+    stepGame(state, inputs({ 0: Key.Bomb }));
+    for (let i = 0; i < FUSE_TICKS - 1; i++) {
+      stepGame(state, inputs({ 0: Key.Up }));
+    }
+    stepGame(state, inputs({}));
+    expect(p.alive).toBe(false);
+  });
+
+  it("無敵中でもドクロは通常どおり効く", () => {
+    const state = bareState();
+    placeAt(state, 0, 3, 3);
+    placeAt(state, 1, 13, 13);
+    const p = state.players[0]!;
+    p.fire = 5;
+
+    state.items.push({ cx: 3, cy: 3, kind: Powerup.Invincible, revealTick: 0 });
+    stepGame(state, inputs({}));
+    expect(p.invincibleTicks).toBeGreaterThan(0);
+
+    // 無敵は爆風にだけ効く。ドクロのデバフは防がない
+    state.items.push({ cx: 3, cy: 3, kind: Powerup.Skull, revealTick: 0 });
+    stepGame(state, inputs({}));
+    expect(p.skullTicks).toBeGreaterThan(0);
+    expect(effectiveFire(p)).toBe(SKULL_FIRE);
   });
 
   it("フルファイアー取得後にドクロを踏むと実効火力だけ落ち、解除で上限に戻る", () => {

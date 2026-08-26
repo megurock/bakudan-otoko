@@ -56,6 +56,14 @@ export const PUNCH_MAX_COUNT = 2;
 export const FULLFIRE_MIN_COUNT = 1;
 export const FULLFIRE_MAX_COUNT = 1;
 
+// 無敵: 一定時間だけ爆風で死ななくなる。
+// ドクロ（10秒）よりあえて短くして、罰より報酬を短命にする
+export const INVINCIBLE_TICKS = 8 * TICK_RATE;
+export const INVINCIBLE_MIN_COUNT = 1;
+export const INVINCIBLE_MAX_COUNT = 1;
+// 残りこの tick を切ったら明滅を速めて「そろそろ切れる」と伝える
+export const INVINCIBLE_WARN_TICKS = 2 * TICK_RATE;
+
 // フェーズ時間
 // 全員 Ready から実際の開始までの猶予（ms）。
 // この間に Ready を外せば中止できる。入室待ちの相手がいるときの押し間違いを救う

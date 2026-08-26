@@ -59,6 +59,7 @@ export class Prediction {
       pierce: false,
       punch: false,
       skullTicks: 0,
+      invincibleTicks: 0,
       wallPass: 0,
       inSoftWall: false,
       keys: 0,
@@ -127,7 +128,8 @@ export class Prediction {
   onSnap(snap: Snap, grid: Uint8Array): void {
     const server = snap.p.find((p) => p[0] === this.slot);
     if (!server) return;
-    const [, sx, sy, , flags, fire, bombCap, speed, skullTicks, wallPass] = server;
+    const [, sx, sy, , flags, fire, bombCap, speed, skullTicks, wallPass, invincibleTicks] =
+      server;
 
     // 世界を最新化（爆弾は snap の値をそのまま採用）
     this.world.grid = grid;
@@ -160,6 +162,8 @@ export class Prediction {
     this.me.bombCap = bombCap;
     this.me.speed = speed;
     this.me.skullTicks = skullTicks;
+    // 無敵の残量もサーバー権威。予測側で減らすと表示と実際がズレる
+    this.me.invincibleTicks = invincibleTicks ?? 0;
     // チャージ消費はサーバー権威（すり抜け完了の判定は stepGame 側でのみ行う）。
     // 予測は最新 snap の値で Soft の通行可否だけを再現する
     this.me.wallPass = wallPass;

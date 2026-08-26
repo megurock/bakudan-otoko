@@ -25,6 +25,8 @@ export const enum Powerup {
   Punch = 6,
   /** フルファイアー: 拾った瞬間に爆風レンジが上限（FIRE_MAX）まで上がる（レア） */
   FullFire = 7,
+  /** 無敵: 一定時間、爆風を浴びても死ななくなる（レア） */
+  Invincible = 8,
 }
 
 // 入力の 5bit ビットマスク
@@ -52,6 +54,7 @@ export interface Player {
   pierce: boolean; // 貫通爆弾を持っているか
   punch: boolean; // パンチグローブを持っているか
   skullTicks: number; // ドクロデバフの残り tick（0=なし）
+  invincibleTicks: number; // 無敵の残り tick（0=なし）。爆風の死亡判定だけをスキップする
   wallPass: number; // 壁すり抜けの残りチャージ（壁から抜け出た瞬間に1消費）
   inSoftWall: boolean; // 中心タイルがソフトブロック内か（チャージ消費のエッジ検出用）
   keys: number; // 現在押下中ビットマスク

@@ -15,7 +15,7 @@ export type SeName =
   | "beep" // カウントダウン
   | "beepHigh"; // カウントダウン終了（開始）
 
-type BgmTrack = "waiting" | "battle";
+type BgmTrack = "waiting" | "battle" | "invincible";
 
 /** MIDI ノート番号 → 周波数 */
 function midi(m: number): number {
@@ -90,6 +90,61 @@ const WAITING_LEAD: Array<number | null> = [
   71, null, 68, null, 64, null, null, null, // B → G#（導音）→ E で頭の Am へ
 ];
 const WAITING_PERC: Perc[] = new Array<Perc>(WAITING_LEAD.length).fill(null);
+
+// 無敵 BGM: 対戦曲より速く、全音音階の駆け上がりで浮遊感を出す。
+// 短い 2 小節ループにして「早く終わる前に暴れろ」という感じにする
+const INVINCIBLE_STEP_SEC = 0.105; // ≈286bpm 相当の16分
+const INVINCIBLE_BASS: Array<number | null> = [
+  // 半音ずつ上がるクロマチックなペダル。落ち着かせない
+  45, 45, 46, 46, 47, 47, 48, 48,
+  49, 49, 50, 50, 51, 51, 52, 52,
+];
+const INVINCIBLE_LEAD: Array<number | null> = [
+  // 全音音階（ホールトーン）の上行 → 頂点から一気に落として頭へ
+  69, 71, 73, 75, 77, 79, 81, 83,
+  85, 83, 81, 79, 77, 75, 73, 71,
+];
+const INVINCIBLE_PERC: Perc[] = [
+  "k", "h", "h", "h", "k", "h", "h", "h",
+  "k", "h", "h", "h", "k", "s", "s", "s",
+];
+
+interface TrackDef {
+  stepSec: number;
+  bass: Array<number | null>;
+  lead: Array<number | null>;
+  perc: Perc[];
+  bassGain: number;
+  leadGain: number;
+}
+
+// トラック定義。既存2曲の値は元の三項演算子と同一（音を変えないこと）
+const TRACKS: Record<BgmTrack, TrackDef> = {
+  waiting: {
+    stepSec: WAITING_STEP_SEC,
+    bass: WAITING_BASS,
+    lead: WAITING_LEAD,
+    perc: WAITING_PERC,
+    bassGain: 0.1,
+    leadGain: 0.035,
+  },
+  battle: {
+    stepSec: BATTLE_STEP_SEC,
+    bass: BATTLE_BASS,
+    lead: BATTLE_LEAD,
+    perc: BATTLE_PERC,
+    bassGain: 0.14,
+    leadGain: 0.05,
+  },
+  invincible: {
+    stepSec: INVINCIBLE_STEP_SEC,
+    bass: INVINCIBLE_BASS,
+    lead: INVINCIBLE_LEAD,
+    perc: INVINCIBLE_PERC,
+    bassGain: 0.13,
+    leadGain: 0.06,
+  },
+};
 
 export class AudioEngine {
   private ctx: AudioContext | null = null;
@@ -329,11 +384,7 @@ export class AudioEngine {
   private scheduleAhead(): void {
     const ctx = this.ctx;
     if (!ctx || this.playingBgm === null) return;
-    const battle = this.playingBgm === "battle";
-    const stepSec = battle ? BATTLE_STEP_SEC : WAITING_STEP_SEC;
-    const bass = battle ? BATTLE_BASS : WAITING_BASS;
-    const lead = battle ? BATTLE_LEAD : WAITING_LEAD;
-    const perc = battle ? BATTLE_PERC : WAITING_PERC;
+    const { stepSec, bass, lead, perc, bassGain, leadGain } = TRACKS[this.playingBgm];
     while (this.nextNoteTime < ctx.currentTime + 0.2) {
       const i = this.stepIndex;
       const delay = this.nextNoteTime - ctx.currentTime;
@@ -341,10 +392,10 @@ export class AudioEngine {
       const l = lead[i];
       const d = perc[i];
       if (b !== null && b !== undefined) {
-        this.blip("triangle", midi(b), midi(b), stepSec * 0.9, battle ? 0.14 : 0.1, delay);
+        this.blip("triangle", midi(b), midi(b), stepSec * 0.9, bassGain, delay);
       }
       if (l !== null && l !== undefined) {
-        this.blip("square", midi(l), midi(l), stepSec * 0.6, battle ? 0.05 : 0.035, delay);
+        this.blip("square", midi(l), midi(l), stepSec * 0.6, leadGain, delay);
       }
       if (d !== null && d !== undefined) this.drum(d, delay);
       this.nextNoteTime += stepSec;

@@ -312,6 +312,27 @@ const ITEM_FULLFIRE = [
   "................",
 ];
 
+// 無敵（レア）: 五芒星。取得中はプレイヤーが虹色に光るので、
+// アイテム自体は金色（d=濃いフチ / y=金 / w=ハイライト）で分かりやすく
+const ITEM_INVINCIBLE = [
+  "......ddd.......",
+  "......dyd.......",
+  "......dyd.......",
+  ".....ddydd......",
+  ".....dyyyd......",
+  ".dddddwwyddddd..",
+  ".dyywwwwyyyyyd..",
+  ".ddywwwwyyyydd..",
+  "..ddywwwyyydd...",
+  "...ddyyyyydd....",
+  "...dyyyyyyyd....",
+  "...dyyydyyyd....",
+  "...dydddddyd....",
+  "...ddd...ddd....",
+  "................",
+  "................",
+];
+
 // ドクロ（罠アイテム）: 大きな眼窩と歯で「危険」と分かる形に
 const ITEM_SKULL = [
   "................",
@@ -428,7 +449,7 @@ export interface SpriteSheet {
   players: HTMLCanvasElement[][][];
   bomb: HTMLCanvasElement[];
   // Powerup の序数順に並べる（items[kind] で引くので、末尾追加のみ許される）:
-  // Fire, Bomb, Speed, Pierce, Skull, WallPass, Punch, FullFire
+  // Fire, Bomb, Speed, Pierce, Skull, WallPass, Punch, FullFire, Invincible
   items: HTMLCanvasElement[];
   floor: HTMLCanvasElement;
   hard: HTMLCanvasElement;
@@ -469,6 +490,8 @@ export function getSprites(): SpriteSheet {
   // フルファイアーは「高温 = 青白い炎」。火力アップの赤橙と色相で対比させる。
   // 白パネルに載るので、コア(w)も白ではなく明るいシアンにして輪郭を残す
   const itemFullFirePal: Palette = { v: "#7a2ce8", c: "#2ea8e8", w: "#7ff0ff" };
+  // 無敵は金色の星。白パネルに載るので濃いフチ(d)で輪郭を残す
+  const itemInvinciblePal: Palette = { y: "#ffd633", d: "#8a6a00", w: "#fffbe0" };
   const floorPal: Palette = { g: "#3a9e3a", G: "#349234" };
   const hardPal: Palette = { h: "#8a8a96", L: "#b4b4c0", d: "#5c5c66" };
   const softPal: Palette = { b: "#c47a3d", B: "#b5651d", o: "#8a4a12", d: "#6e3a0e" };
@@ -502,6 +525,7 @@ export function getSprites(): SpriteSheet {
       itemBg(bake(ITEM_WALLPASS, itemWallPassPal)),
       itemBg(bake(ITEM_PUNCH, itemPunchPal)),
       itemBg(bake(ITEM_FULLFIRE, itemFullFirePal)),
+      itemBg(bake(ITEM_INVINCIBLE, itemInvinciblePal)),
     ],
     floor: bake(TILE_FLOOR_A, floorPal),
     hard: bake(TILE_HARD, hardPal),

@@ -456,6 +456,20 @@ function frame(): void {
     countdownEndTick,
   });
 
+  // 無敵中は BGM を専用トラックへ。自分の状態だけで判断する（他人の無敵で
+  // 曲が変わると自分の状況と音が食い違う）。setBgm は同一トラックの再指定を
+  // 弾くので毎フレーム呼んでも曲は鳴り直さない
+  const snapNow = snapBuffer.latest;
+  if (snapNow && snapNow.ph === "playing" && winnerSlot === null) {
+    const me = snapNow.p.find((p) => p[0] === mySlot);
+    let invincible = false;
+    if (me) {
+      const [, , , , flags, , , , , , invincibleTicks] = me;
+      invincible = (invincibleTicks ?? 0) > 0 && (flags & 1) !== 0; // 生存中のみ
+    }
+    audio.setBgm(invincible ? "invincible" : "battle");
+  }
+
   if (now - lastDebugAt > 500) {
     lastDebugAt = now;
     debugEl.textContent = prediction
@@ -464,13 +478,15 @@ function frame(): void {
     // 自分のステータス表示
     const mine = snapBuffer.latest?.p.find((p) => p[0] === mySlot);
     if (mine) {
-      const [, , , , flags, fire, bombCap, speed, skullTicks, wallPass] = mine;
+      const [, , , , flags, fire, bombCap, speed, skullTicks, wallPass, invincibleTicks] = mine;
       const parts = [`🔥${fire}`, `💣${bombCap}`, `👟${Math.round((speed - 32) / 8)}`];
       if ((flags & 4) !== 0) parts.push("➡️貫通");
       if ((flags & 16) !== 0) parts.push("👊パンチ");
       const wp = wallPass ?? 0;
       if (wp > 0) parts.push(wp > 1 ? `👻すり抜け×${wp}` : "👻すり抜け");
       if (skullTicks > 0) parts.push(`💀${Math.ceil(skullTicks / TICK_RATE)}秒`);
+      const inv = invincibleTicks ?? 0;
+      if (inv > 0) parts.push(`⭐無敵${Math.ceil(inv / TICK_RATE)}秒`);
       statsEl.textContent = parts.join(" ");
       statsEl.style.color = skullTicks > 0 ? "#e74c3c" : "";
     } else {
