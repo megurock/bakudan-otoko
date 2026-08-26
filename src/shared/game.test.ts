@@ -4,6 +4,7 @@ import {
   BLAST_TICKS,
   CORNER_SLIDE_MAX,
   COUNTDOWN_TICKS,
+  FIRE_MAX,
   FUSE_TICKS,
   HALF_TILE,
   MAP_H,
@@ -31,6 +32,7 @@ import {
 import { createMap, idx, tileAt } from "./map";
 import {
   centerTileX,
+  centerTileY,
   collides,
   movePlayer,
   tilePassable,
@@ -217,7 +219,7 @@ describe("map", () => {
     expect(dropRate).toBeLessThan(0.36);
   });
 
-  it("7種類すべてのアイテムが出現し、Pierce と Skull は希少", () => {
+  it("8種類すべてのアイテムが出現し、Pierce と Skull は希少", () => {
     const counts = new Map<number, number>();
     for (let seed = 0; seed < 200; seed++) {
       const { hiddenItems } = createMap({ seed }, ALL_SLOTS);
@@ -227,7 +229,7 @@ describe("map", () => {
         counts.set(kind, (counts.get(kind) ?? 0) + 1);
       }
     }
-    // 7種すべてが出る
+    // 8種すべてが出る
     for (const kind of [
       Powerup.Fire,
       Powerup.Bomb,
@@ -236,6 +238,7 @@ describe("map", () => {
       Powerup.Skull,
       Powerup.WallPass,
       Powerup.Punch,
+      Powerup.FullFire,
     ]) {
       expect(counts.get(kind) ?? 0).toBeGreaterThan(0);
     }
@@ -284,6 +287,36 @@ describe("map", () => {
     }
     expect(seen.has(1)).toBe(true);
     expect(seen.has(2)).toBe(true);
+  });
+
+  it("フルファイアーは1マップにちょうど1個だけ隠される", () => {
+    for (let seed = 0; seed < 100; seed++) {
+      const { grid, hiddenItems } = createMap({ seed }, ALL_SLOTS);
+      let count = 0;
+      for (let i = 0; i < hiddenItems.length; i++) {
+        if (hiddenItems[i] === Powerup.FullFire + 1) {
+          count++;
+          expect(grid[i]).toBe(Tile.Soft);
+        }
+      }
+      expect(count).toBe(1);
+    }
+  });
+
+  it("レア3種は互いを上書きせず、確定個数がすべて揃う", () => {
+    // emptySofts を splice で消費しながら順に配るので、後発のフルファイアーが
+    // 壁すり抜け/パンチを潰していないことを個数で担保する
+    for (let seed = 0; seed < 50; seed++) {
+      const { hiddenItems } = createMap({ seed }, ALL_SLOTS);
+      const counts = new Map<number, number>();
+      for (const v of hiddenItems) {
+        if (v === 0) continue;
+        counts.set(v - 1, (counts.get(v - 1) ?? 0) + 1);
+      }
+      expect(counts.get(Powerup.WallPass) ?? 0).toBeGreaterThanOrEqual(1);
+      expect(counts.get(Powerup.Punch) ?? 0).toBeGreaterThanOrEqual(1);
+      expect(counts.get(Powerup.FullFire) ?? 0).toBe(1);
+    }
   });
 });
 
@@ -545,6 +578,48 @@ describe("death & win", () => {
     for (let i = 0; i < 10; i++) stepGame(state, inputs({ 0: Key.Right }));
     expect(state.players[0]!.fire).toBe(2);
     expect(bomb.range).toBe(1); // 既設爆弾は据え置き
+  });
+
+  it("フルファイアーは1個で火力を上限まで引き上げる", () => {
+    const state = bareState();
+    placeAt(state, 0, 3, 3);
+    placeAt(state, 1, 13, 13);
+    const p = state.players[0]!;
+    expect(p.fire).toBe(1);
+
+    state.items.push({ cx: 4, cy: 3, kind: Powerup.FullFire, revealTick: 0 });
+    for (let i = 0; i < 10; i++) stepGame(state, inputs({ 0: Key.Right }));
+    expect(p.fire).toBe(FIRE_MAX);
+
+    // 以降の火力アップを拾っても上限を超えない
+    state.items.push({
+      cx: centerTileX(p),
+      cy: centerTileY(p),
+      kind: Powerup.Fire,
+      revealTick: 0,
+    });
+    stepGame(state, inputs({}));
+    expect(p.fire).toBe(FIRE_MAX);
+  });
+
+  it("フルファイアー取得後にドクロを踏むと実効火力だけ落ち、解除で上限に戻る", () => {
+    const state = bareState();
+    placeAt(state, 0, 3, 3);
+    placeAt(state, 1, 13, 13);
+    const p = state.players[0]!;
+
+    state.items.push({ cx: 3, cy: 3, kind: Powerup.FullFire, revealTick: 0 });
+    stepGame(state, inputs({}));
+    expect(p.fire).toBe(FIRE_MAX);
+
+    state.items.push({ cx: 3, cy: 3, kind: Powerup.Skull, revealTick: 0 });
+    stepGame(state, inputs({}));
+    expect(p.fire).toBe(FIRE_MAX); // 素の値は保持
+    expect(effectiveFire(p)).toBe(SKULL_FIRE);
+
+    for (let i = 0; i < SKULL_TICKS + 2; i++) stepGame(state, inputs({}));
+    expect(p.skullTicks).toBe(0);
+    expect(effectiveFire(p)).toBe(FIRE_MAX);
   });
 
   it("貫通爆弾はソフトブロックを突き抜けて奥まで爆風が届く", () => {

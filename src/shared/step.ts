@@ -323,6 +323,10 @@ function pickupItem(state: GameState, p: Player): void {
       case Powerup.Punch:
         p.punch = true;
         break;
+      case Powerup.FullFire:
+        // 一気に上限まで。ドクロを踏めば effectiveFire が一時的に落ちるのは他と同じ
+        p.fire = FIRE_MAX;
+        break;
     }
     state.items.splice(i, 1);
     state.events.push(["pickup", p.slot, item.kind]);

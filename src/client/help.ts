@@ -1,7 +1,7 @@
 // 遊び方画面。実際のゲームで使うスプライトをそのまま並べるので、
 // 説明の見た目と本編の見た目が必ず一致する。
 
-import { PUNCH_DISTANCE, SKULL_TICKS, TICK_RATE } from "../shared/constants";
+import { FIRE_MAX, PUNCH_DISTANCE, SKULL_TICKS, TICK_RATE } from "../shared/constants";
 import { getSprites } from "./game/sprites";
 import { Powerup } from "../shared/types";
 import { logoHtml } from "./logo";
@@ -51,6 +51,13 @@ const ITEM_DOCS: ItemDoc[] = [
       "壁も爆弾も相手も飛び越え、画面の端まで飛ぶと反対側から出てくる。" +
       "着地先が塞がっていればさらに先の空きマスへ。" +
       "他人の爆弾も押せる。一度取れば効果はずっと続く。",
+  },
+  {
+    kind: Powerup.FullFire,
+    name: "フルファイアー（レア）",
+    desc:
+      `拾った瞬間、火力が最大の${FIRE_MAX}マスまで一気に上がる。` +
+      "火力アップを積み重ねる必要はもうない。ただしドクロを踏めば一時的に落ちる。",
   },
 ];
 

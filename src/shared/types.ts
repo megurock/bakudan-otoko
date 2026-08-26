@@ -23,6 +23,8 @@ export const enum Powerup {
   WallPass = 5,
   /** パンチグローブ: 隣接する爆弾を向いている方向へ飛ばせる（レア・永続） */
   Punch = 6,
+  /** フルファイアー: 拾った瞬間に爆風レンジが上限（FIRE_MAX）まで上がる（レア） */
+  FullFire = 7,
 }
 
 // 入力の 5bit ビットマスク

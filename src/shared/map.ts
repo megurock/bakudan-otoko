@@ -1,5 +1,7 @@
 import {
   DROP_PCT,
+  FULLFIRE_MAX_COUNT,
+  FULLFIRE_MIN_COUNT,
   MAP_H,
   MAP_W,
   PUNCH_MAX_COUNT,
@@ -116,6 +118,17 @@ export function createMap(rng: RngState, slots: readonly number[]): MapData {
     const j = randBelow(rng, emptySofts.length);
     const cell = emptySofts.splice(j, 1)[0]!;
     hiddenItems[cell] = Powerup.Punch + 1;
+  }
+
+  // フルファイアー（レア）: 同じく別枠で確定 1 個
+  const fullFireCount = Math.min(
+    emptySofts.length,
+    FULLFIRE_MIN_COUNT + randBelow(rng, FULLFIRE_MAX_COUNT - FULLFIRE_MIN_COUNT + 1),
+  );
+  for (let n = 0; n < fullFireCount; n++) {
+    const j = randBelow(rng, emptySofts.length);
+    const cell = emptySofts.splice(j, 1)[0]!;
+    hiddenItems[cell] = Powerup.FullFire + 1;
   }
 
   return { grid, hiddenItems };
