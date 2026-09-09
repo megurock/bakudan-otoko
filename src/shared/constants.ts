@@ -57,8 +57,8 @@ export const FULLFIRE_MIN_COUNT = 1;
 export const FULLFIRE_MAX_COUNT = 1;
 
 // 無敵: 一定時間だけ爆風で死ななくなる。
-// ドクロ（10秒）よりあえて短くして、罰より報酬を短命にする
-export const INVINCIBLE_TICKS = 8 * TICK_RATE;
+// 取れば一気に攻勢へ回れる長さ。ドクロ（10秒）より長い強力な報酬
+export const INVINCIBLE_TICKS = 16 * TICK_RATE;
 export const INVINCIBLE_MIN_COUNT = 1;
 export const INVINCIBLE_MAX_COUNT = 1;
 // 残りこの tick を切ったら明滅を速めて「そろそろ切れる」と伝える
