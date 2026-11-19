@@ -1,6 +1,9 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "bakudan-otoko",
+  // デプロイ先のアカウントを固定する。未指定だとログイン中のアカウントへ黙って出るため、
+  // 別アカウントでログインしたまま deploy すると同名 Worker が新規作成されてしまう
+  "account_id": "4305d18f5b98537678437ff9456a4a35",
   "main": "src/server/index.ts",
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
