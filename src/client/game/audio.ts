@@ -3,6 +3,9 @@
 //
 // ブラウザの自動再生制限のため、AudioContext は最初のユーザー操作
 // （pointerdown / keydown）で起動し、それまでの BGM 開始要求は保留しておく。
+//
+// BGM と SE は別々のバス（GainNode）に流し、個別に ON/OFF できる。
+// BGM はさらにバスのゲインで音量を調整する。
 
 export type SeName =
   | "place" // 爆弾設置
@@ -146,11 +149,35 @@ const TRACKS: Record<BgmTrack, TrackDef> = {
   },
 };
 
+const MASTER_GAIN = 0.3;
+const KEY_BGM = "bm-bgm"; // "1" | "0"
+const KEY_SE = "bm-se"; // "1" | "0"
+const KEY_BGM_VOL = "bm-bgm-vol"; // 0〜100 の整数
+const KEY_LEGACY_MUTE = "bm-mute"; // 旧: 全体ミュート（"1" でミュート）
+
+/** ON/OFF 設定を読む。未保存なら旧ミュート設定を引き継ぐ */
+function loadFlag(key: string): boolean {
+  const v = localStorage.getItem(key);
+  if (v !== null) return v === "1";
+  return localStorage.getItem(KEY_LEGACY_MUTE) !== "1";
+}
+
+/** BGM 音量（0〜1）を読む。未保存・不正値は最大（従来と同じ音量） */
+function loadVolume(): number {
+  const raw = localStorage.getItem(KEY_BGM_VOL);
+  const v = raw === null ? NaN : Number(raw);
+  return Number.isFinite(v) ? Math.min(1, Math.max(0, v / 100)) : 1;
+}
+
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
+  private bgmBus: GainNode | null = null;
+  private seBus: GainNode | null = null;
   private noiseBuf: AudioBuffer | null = null;
-  private mutedState: boolean;
+  private bgmOn: boolean;
+  private seOn: boolean;
+  private bgmVol: number; // 0〜1（スライダー位置）
 
   private desiredBgm: BgmTrack | null = null;
   private playingBgm: BgmTrack | null = null;
@@ -160,34 +187,48 @@ export class AudioEngine {
   private timers: number[] = [];
 
   constructor() {
-    this.mutedState = localStorage.getItem("bm-mute") === "1";
+    this.bgmOn = loadFlag(KEY_BGM);
+    this.seOn = loadFlag(KEY_SE);
+    this.bgmVol = loadVolume();
     // 自動再生制限の解除。running になるまで何度でも試みる
-    const unlock = (): void => {
-      if (this.mutedState) return;
-      const ctx = this.ensureCtx();
-      if (ctx.state === "suspended") {
-        void ctx.resume().then(() => this.applyBgm());
-      } else {
-        this.applyBgm();
-      }
-    };
+    const unlock = (): void => this.wake();
     window.addEventListener("pointerdown", unlock);
     window.addEventListener("keydown", unlock);
   }
 
-  get muted(): boolean {
-    return this.mutedState;
+  get bgmEnabled(): boolean {
+    return this.bgmOn;
   }
 
-  toggleMute(): boolean {
-    this.mutedState = !this.mutedState;
-    localStorage.setItem("bm-mute", this.mutedState ? "1" : "0");
-    if (this.master && this.ctx) {
-      // 鳴っている音の尻尾ごと即座に消す/戻す
-      this.master.gain.setValueAtTime(this.mutedState ? 0 : 0.3, this.ctx.currentTime);
-    }
-    this.applyBgm();
-    return this.mutedState;
+  get seEnabled(): boolean {
+    return this.seOn;
+  }
+
+  /** BGM 音量（0〜1） */
+  get bgmVolume(): number {
+    return this.bgmVol;
+  }
+
+  setBgmEnabled(on: boolean): void {
+    this.bgmOn = on;
+    localStorage.setItem(KEY_BGM, on ? "1" : "0");
+    this.applyGains(true);
+    // 設定操作（クリック）自体がユーザー操作なので、ここで起動・再開まで済ませる
+    this.wake();
+  }
+
+  setSeEnabled(on: boolean): void {
+    this.seOn = on;
+    localStorage.setItem(KEY_SE, on ? "1" : "0");
+    this.applyGains(true);
+    this.wake();
+  }
+
+  /** BGM 音量を 0〜1 で設定する。再生中の曲は止めずに音量だけ変える */
+  setBgmVolume(vol: number): void {
+    this.bgmVol = Math.min(1, Math.max(0, vol));
+    localStorage.setItem(KEY_BGM_VOL, String(Math.round(this.bgmVol * 100)));
+    this.applyGains(false);
   }
 
   /** BGM を切り替える（null で停止）。context 未起動なら起動後に反映される */
@@ -217,7 +258,7 @@ export class AudioEngine {
   }
 
   playSe(name: SeName): void {
-    if (this.mutedState) return;
+    if (!this.seOn) return;
     const ctx = this.ensureCtx();
     if (ctx.state !== "running") return; // 未解錠のまま溜めると解錠時に一斉再生されてしまう
     switch (name) {
@@ -270,7 +311,13 @@ export class AudioEngine {
     if (this.ctx) return this.ctx;
     this.ctx = new AudioContext();
     this.master = this.ctx.createGain();
-    this.master.gain.value = this.mutedState ? 0 : 0.3;
+    this.master.gain.value = MASTER_GAIN;
+    this.bgmBus = this.ctx.createGain();
+    this.bgmBus.gain.value = this.bgmGain();
+    this.bgmBus.connect(this.master);
+    this.seBus = this.ctx.createGain();
+    this.seBus.gain.value = this.seOn ? 1 : 0;
+    this.seBus.connect(this.master);
     // 爆発などの大きな音が重なっても割れないよう、最終段で軽く潰す
     const comp = this.ctx.createDynamicsCompressor();
     comp.threshold.value = -18;
@@ -282,12 +329,47 @@ export class AudioEngine {
     return this.ctx;
   }
 
+  /** AudioContext を起動（必要なら再開）して BGM の状態を合わせる。両方 OFF なら起動しない */
+  private wake(): void {
+    if (!this.bgmOn && !this.seOn) {
+      this.applyBgm();
+      return;
+    }
+    const ctx = this.ensureCtx();
+    if (ctx.state === "suspended") {
+      void ctx.resume().then(() => this.applyBgm());
+    } else {
+      this.applyBgm();
+    }
+  }
+
+  /** BGM バスのゲイン。スライダーは二乗カーブにして聴感上なめらかに変化させる */
+  private bgmGain(): number {
+    return this.bgmOn ? this.bgmVol * this.bgmVol : 0;
+  }
+
+  /**
+   * 設定をバスのゲインへ反映する。
+   * immediate = true は ON/OFF 用（鳴っている音の尻尾ごと即座に消す/戻す）、
+   * false は音量スライダー用（ジッパーノイズを避けて短く追従させる）
+   */
+  private applyGains(immediate: boolean): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.bgmBus || !this.seBus) return;
+    const now = ctx.currentTime;
+    this.bgmBus.gain.cancelScheduledValues(now);
+    if (immediate) this.bgmBus.gain.setValueAtTime(this.bgmGain(), now);
+    else this.bgmBus.gain.setTargetAtTime(this.bgmGain(), now, 0.015);
+    this.seBus.gain.cancelScheduledValues(now);
+    this.seBus.gain.setValueAtTime(this.seOn ? 1 : 0, now);
+  }
+
   private clearTimers(): void {
     for (const t of this.timers) clearTimeout(t);
     this.timers = [];
   }
 
-  /** 単音: 周波数 f0 → f1 へスウィープしつつ短いエンベロープで減衰 */
+  /** 単音: 周波数 f0 → f1 へスウィープしつつ短いエンベロープで減衰。dest 省略時は SE バスへ出す */
   private blip(
     type: OscillatorType,
     f0: number,
@@ -295,6 +377,7 @@ export class AudioEngine {
     dur: number,
     vol: number,
     delay = 0,
+    dest: AudioNode = this.seBus!,
   ): void {
     const ctx = this.ctx!;
     const t = ctx.currentTime + delay;
@@ -305,7 +388,7 @@ export class AudioEngine {
     if (f1 !== f0) osc.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
     gain.gain.setValueAtTime(vol, t);
     gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    osc.connect(gain).connect(this.master!);
+    osc.connect(gain).connect(dest);
     osc.start(t);
     osc.stop(t + dur + 0.02);
   }
@@ -317,6 +400,7 @@ export class AudioEngine {
     cutoffEnd: number,
     vol: number,
     delay = 0,
+    dest: AudioNode = this.seBus!,
   ): void {
     const ctx = this.ctx!;
     if (!this.noiseBuf) {
@@ -335,30 +419,31 @@ export class AudioEngine {
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(vol, t);
     gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    src.connect(filter).connect(gain).connect(this.master!);
+    src.connect(filter).connect(gain).connect(dest);
     src.start(t);
     src.stop(t + dur);
   }
 
   /** BGM 用パーカッション1発 */
   private drum(kind: Exclude<Perc, null>, delay: number): void {
+    const bus = this.bgmBus!;
     switch (kind) {
       case "k": // キック: サイン波の急降下
-        this.blip("sine", 130, 40, 0.12, 0.35, delay);
+        this.blip("sine", 130, 40, 0.12, 0.35, delay, bus);
         break;
       case "h": // ハイハット: ごく短い高域ノイズ
-        this.noise(0.03, 9000, 6000, 0.06, delay);
+        this.noise(0.03, 9000, 6000, 0.06, delay, bus);
         break;
       case "s": // スネア: 中域ノイズ + 短いトーン
-        this.noise(0.09, 3200, 1200, 0.16, delay);
-        this.blip("triangle", 210, 170, 0.06, 0.1, delay);
+        this.noise(0.09, 3200, 1200, 0.16, delay, bus);
+        this.blip("triangle", 210, 170, 0.06, 0.1, delay, bus);
         break;
     }
   }
 
   /** desiredBgm と実際の再生状態を一致させる */
   private applyBgm(): void {
-    const want = this.mutedState ? null : this.desiredBgm;
+    const want = this.bgmOn ? this.desiredBgm : null;
     const ctx = this.ctx;
     if (want === null || !ctx || ctx.state !== "running") {
       this.stopBgm();
@@ -392,10 +477,10 @@ export class AudioEngine {
       const l = lead[i];
       const d = perc[i];
       if (b !== null && b !== undefined) {
-        this.blip("triangle", midi(b), midi(b), stepSec * 0.9, bassGain, delay);
+        this.blip("triangle", midi(b), midi(b), stepSec * 0.9, bassGain, delay, this.bgmBus!);
       }
       if (l !== null && l !== undefined) {
-        this.blip("square", midi(l), midi(l), stepSec * 0.6, leadGain, delay);
+        this.blip("square", midi(l), midi(l), stepSec * 0.6, leadGain, delay, this.bgmBus!);
       }
       if (d !== null && d !== undefined) this.drum(d, delay);
       this.nextNoteTime += stepSec;

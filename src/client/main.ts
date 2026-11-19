@@ -43,7 +43,11 @@ function startGame(app: HTMLElement, roomId: string): void {
     <span id="status">connecting...</span>
     <button id="readyBtn" style="display:none;margin-left:12px;padding:4px 16px">Ready</button>
     <span id="stats" style="margin-left:16px"></span>
-    <button id="muteBtn" style="float:right;padding:4px 10px;background:#2a2a3e;color:#aaa;border:1px solid #444;border-radius:4px;cursor:pointer"></button>
+    <span id="audioCtl" style="float:right;display:inline-flex;align-items:center;gap:6px">
+      <button id="bgmBtn" type="button" style="padding:4px 10px;background:#2a2a3e;border:1px solid #444;border-radius:4px;cursor:pointer"></button>
+      <input id="bgmVol" type="range" min="0" max="100" step="1" aria-label="BGM の音量" style="width:90px;accent-color:#ff9f1a;cursor:pointer">
+      <button id="seBtn" type="button" style="padding:4px 10px;background:#2a2a3e;border:1px solid #444;border-radius:4px;cursor:pointer"></button>
+    </span>
   </div>
   <div id="rosterView" style="margin-bottom:8px;min-height:1.2em"></div>
   <div id="seriesView" style="margin-bottom:8px;min-height:1.2em;font-size:13px"></div>
@@ -80,16 +84,38 @@ const renderer = new Renderer(canvas);
 const snapBuffer = new SnapBuffer();
 const audio = new AudioEngine();
 
-const muteBtn = document.getElementById("muteBtn") as HTMLButtonElement;
-function renderMute(): void {
-  muteBtn.textContent = audio.muted ? "🔇" : "🔊";
-  muteBtn.title = audio.muted ? "サウンドをオンにする" : "ミュート";
+// サウンド設定: BGM と SE を個別に ON/OFF、BGM は音量も調整できる
+const bgmBtn = document.getElementById("bgmBtn") as HTMLButtonElement;
+const seBtn = document.getElementById("seBtn") as HTMLButtonElement;
+const bgmVol = document.getElementById("bgmVol") as HTMLInputElement;
+function renderToggle(btn: HTMLButtonElement, label: string, on: boolean): void {
+  btn.textContent = `${on ? "🔊" : "🔇"} ${label}`;
+  btn.title = on ? `${label} をオフにする` : `${label} をオンにする`;
+  btn.setAttribute("aria-pressed", String(on));
+  btn.style.color = on ? "#e8e6f0" : "#777";
 }
-muteBtn.addEventListener("click", () => {
-  audio.toggleMute();
-  renderMute();
+function renderAudioCtl(): void {
+  renderToggle(bgmBtn, "BGM", audio.bgmEnabled);
+  renderToggle(seBtn, "SE", audio.seEnabled);
+  const pct = Math.round(audio.bgmVolume * 100);
+  bgmVol.value = String(pct);
+  bgmVol.title = `BGM の音量: ${pct}%`;
+  bgmVol.disabled = !audio.bgmEnabled;
+  bgmVol.style.opacity = audio.bgmEnabled ? "1" : "0.4";
+}
+bgmBtn.addEventListener("click", () => {
+  audio.setBgmEnabled(!audio.bgmEnabled);
+  renderAudioCtl();
 });
-renderMute();
+seBtn.addEventListener("click", () => {
+  audio.setSeEnabled(!audio.seEnabled);
+  renderAudioCtl();
+});
+bgmVol.addEventListener("input", () => {
+  audio.setBgmVolume(Number(bgmVol.value) / 100);
+  renderAudioCtl();
+});
+renderAudioCtl();
 const debugEl = document.getElementById("debug")!;
 const statsEl = document.getElementById("stats")!;
 const startHintEl = document.getElementById("startHint")!;
